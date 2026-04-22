@@ -641,6 +641,15 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function stopCanvasToolbarEvent(event: React.SyntheticEvent) {
+  event.stopPropagation();
+}
+
+function stopCanvasToolbarWheel(event: React.WheelEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 function ToolbarButton({
   icon: Icon,
   label,
@@ -1177,6 +1186,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         setStatusNotice(`最多添加 ${CHAT_IMAGE_LIMIT} 张参考图。`);
         return previous;
       }
+      setStatusNotice('已添加到对话。');
       return [
         ...previous,
         {
@@ -2029,6 +2039,10 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 }}
               >
                 <div
+                  onPointerDown={stopCanvasToolbarEvent}
+                  onMouseDown={stopCanvasToolbarEvent}
+                  onClick={stopCanvasToolbarEvent}
+                  onWheel={stopCanvasToolbarWheel}
                   className={`inline-flex items-center gap-1 rounded-[24px] border border-white/[0.08] bg-[#1e212d]/95 px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl ${
                     isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
                   }`}
@@ -2048,7 +2062,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   <ContextButton
                     icon={Clapperboard}
                     label="生成视频"
-                    disabled
+                    disabled={false}
                     onClick={openVideoPopover}
                   />
                   <div className="mx-1 h-6 w-px bg-white/[0.08]" />
@@ -2076,6 +2090,10 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 }}
               >
                 <div
+                  onPointerDown={stopCanvasToolbarEvent}
+                  onMouseDown={stopCanvasToolbarEvent}
+                  onClick={stopCanvasToolbarEvent}
+                  onWheel={stopCanvasToolbarWheel}
                   className={`rounded-[28px] border border-white/[0.08] bg-[#161925]/97 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl ${
                     isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
                   }`}
