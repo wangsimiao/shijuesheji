@@ -669,13 +669,13 @@ function ToolbarButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-11 w-11 items-center justify-center rounded-2xl border text-slate-100 transition ${
+      className={`flex h-10 w-10 items-center justify-center rounded-[18px] border text-slate-100 transition ${
         active
           ? 'border-[#8e81ff] bg-[#3b325f] shadow-[0_0_0_1px_rgba(142,129,255,0.45)]'
           : 'border-transparent bg-white/[0.04] hover:bg-white/[0.08]'
       } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className="h-4.5 w-4.5" />
     </button>
   );
 }
@@ -698,11 +698,11 @@ function ContextButton({
       type="button"
       aria-disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-100 transition ${
-        textOnly ? 'min-w-[138px] justify-center' : 'justify-center'
+      className={`inline-flex h-10 items-center gap-1.5 rounded-[11px] px-2.5 text-[13px] font-medium text-slate-100 transition ${
+        textOnly ? 'min-w-[124px] justify-center' : 'justify-center'
       } ${disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-white/[0.08]'}`}
     >
-      <Icon className="h-4.5 w-4.5" />
+      <Icon className="h-4 w-4" />
       {textOnly ? <span>{label}</span> : null}
     </button>
   );
@@ -935,7 +935,6 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         top: view.y + selectedImageItem.y * view.scale - 18,
       }
     : null;
-  const isOutsideCanvasLocked = canvasWheelLock && !cropState;
 
   const cropTargetItem =
     cropState && items.find((item) => item.id === cropState.itemId && item.type === 'image')
@@ -1753,25 +1752,21 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header
-          className={`flex h-[68px] items-center border-b border-white/[0.06] bg-[#0d111a]/95 px-5 ${
-            isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
-          }`}
-        >
-          <div className="flex items-center gap-3">
+        <header className="flex h-[62px] items-center border-b border-white/[0.06] bg-[#0d111a]/95 px-4">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 text-sm text-slate-100 transition hover:bg-white/[0.06]"
+              className="inline-flex h-10 items-center gap-1.5 rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-3.5 text-[13px] text-slate-100 transition hover:bg-white/[0.06]"
             >
               <ChevronLeft className="h-4 w-4" />
               返回
             </button>
-            <div className="h-6 w-px bg-white/[0.08]" />
+            <div className="h-5 w-px bg-white/[0.08]" />
             <input
               value={boardName}
               onChange={(event) => setBoardName(event.target.value)}
-              className="w-[220px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-lg font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
+              className="w-[210px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-base font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
             />
           </div>
         </header>
@@ -1861,7 +1856,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                       ) : null}
 
                       {item.type === 'text' ? (
-                        <div className="flex h-full w-full items-center justify-center px-6 text-center text-[22px] font-medium leading-snug">
+                        <div className="flex h-full w-full items-center justify-center px-5 text-center text-[18px] font-medium leading-snug">
                           {item.content}
                         </div>
                       ) : null}
@@ -1874,7 +1869,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                         <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-6 text-center">
                           <Loader2 className="h-8 w-8 animate-spin text-[#8e81ff]" />
                           <div className="space-y-2">
-                            <div className="text-sm font-medium text-slate-100">{item.prompt || 'AI 正在处理中'}</div>
+                            <div className="text-[13px] font-medium text-slate-100">{item.prompt || 'AI 正在处理中'}</div>
                             <div className="text-xs leading-5 text-slate-400">{item.content}</div>
                           </div>
                         </div>
@@ -1908,7 +1903,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                         ].map((handleStyle, index) => (
                           <span
                             key={index}
-                            className="pointer-events-none absolute h-3.5 w-3.5 rounded-[2px] border border-[#8e81ff] bg-white shadow-[0_0_0_1px_rgba(142,129,255,0.25)]"
+                            className="pointer-events-none absolute h-3 w-3 rounded-[2px] border border-[#8e81ff] bg-white shadow-[0_0_0_1px_rgba(142,129,255,0.25)]"
                             style={handleStyle}
                           />
                         ))}
@@ -1954,8 +1949,8 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               ) : null}
             </div>
 
-            <div className="absolute left-6 top-1/2 z-20 -translate-y-1/2 rounded-[30px] border border-white/[0.08] bg-[#1d202b]/95 p-3 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-              <div className="flex flex-col items-center gap-2">
+            <div className="absolute left-5 top-1/2 z-20 -translate-y-1/2 rounded-[26px] border border-white/[0.08] bg-[#1d202b]/95 p-2.5 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+              <div className="flex flex-col items-center gap-1.5">
                 <ToolbarButton
                   icon={MousePointer2}
                   label="选择"
@@ -1972,7 +1967,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   label="导入视频"
                   onClick={() => videoInputRef.current?.click()}
                 />
-                <div className="my-1 h-px w-7 bg-white/[0.1]" />
+                <div className="my-1 h-px w-6 bg-white/[0.1]" />
                 <ToolbarButton
                   icon={Pencil}
                   label="画笔"
@@ -1995,32 +1990,32 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
             </div>
 
             {!cropState ? (
-              <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2">
-                <div className="inline-flex items-center rounded-full border border-white/[0.08] bg-[#232632]/95 px-2 py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+              <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
+                <div className="inline-flex items-center rounded-full border border-white/[0.08] bg-[#232632]/95 px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl">
                   <button
                     type="button"
                     onClick={handleFitCanvasView}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
                     title="适应画布"
                   >
-                    <Scan className="h-4.5 w-4.5" />
+                    <Scan className="h-4 w-4" />
                   </button>
-                  <div className="mx-2 h-6 w-px bg-white/[0.08]" />
+                  <div className="mx-1.5 h-5 w-px bg-white/[0.08]" />
                   <button
                     type="button"
                     onClick={handleZoomOut}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
                     title="缩小"
                   >
                     <Minus className="h-4 w-4" />
                   </button>
-                  <div className="min-w-[78px] text-center text-[15px] font-semibold tracking-[0.02em] text-white">
+                  <div className="min-w-[68px] text-center text-[13px] font-semibold tracking-[0.02em] text-white">
                     {Math.round(view.scale * 100)} %
                   </div>
                   <button
                     type="button"
                     onClick={handleZoomIn}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
                     title="放大"
                   >
                     <Plus className="h-4 w-4" />
@@ -2043,9 +2038,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   onMouseDown={stopCanvasToolbarEvent}
                   onClick={stopCanvasToolbarEvent}
                   onWheel={stopCanvasToolbarWheel}
-                  className={`inline-flex items-center gap-1 rounded-[24px] border border-white/[0.08] bg-[#1e212d]/95 px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl ${
-                    isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
-                  }`}
+                  className="inline-flex items-center gap-1 rounded-[20px] border border-white/[0.08] bg-[#1e212d]/95 px-2.5 py-1.5 shadow-[0_18px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl"
                 >
                   <ContextButton
                     icon={RefreshCcw}
@@ -2094,16 +2087,14 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   onMouseDown={stopCanvasToolbarEvent}
                   onClick={stopCanvasToolbarEvent}
                   onWheel={stopCanvasToolbarWheel}
-                  className={`rounded-[28px] border border-white/[0.08] bg-[#161925]/97 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl ${
-                    isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
-                  }`}
+                  className="rounded-[24px] border border-white/[0.08] bg-[#161925]/97 p-3.5 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl"
                 >
                   <div className="mb-3 flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-white">
+                      <h3 className="text-[13px] font-semibold text-white">
                         {actionPopover.type === 'regenerate' ? '重新生成图片' : '从图片生成视频'}
                       </h3>
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-[11px] text-slate-400">
                         {actionPopover.type === 'regenerate'
                           ? '将当前图片作为参考图，生成后直接替换'
                           : '将当前图片作为参考图，生成后在右侧新增视频卡片'}
@@ -2112,7 +2103,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                     <button
                       type="button"
                       onClick={() => setActionPopover(null)}
-                      className="rounded-full p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+                      className="rounded-full p-1.5 text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -2127,17 +2118,17 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                     }
                     placeholder="描述你想要保留或变化的内容"
                     rows={4}
-                    className="w-full resize-none rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-[#8e81ff]/50"
+                    className="w-full resize-none rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5 text-[13px] text-white outline-none placeholder:text-slate-500 focus:border-[#8e81ff]/50"
                   />
 
                   {!isDoubaoConfigured() && actionPopover.type === 'regenerate' ? (
-                    <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    <div className="mt-3 rounded-[18px] border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
                       未配置 `VITE_DOUBAO_API_KEY`，这个按钮不会真正发起生成。
                     </div>
                   ) : null}
 
                   {actionPopover.type === 'video' ? (
-                    <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    <div className="mt-3 rounded-[18px] border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
                       {VIDEO_DISABLED_REASON}
                     </div>
                   ) : null}
@@ -2146,7 +2137,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                     <button
                       type="button"
                       onClick={() => setActionPopover(null)}
-                      className="rounded-2xl border border-white/[0.08] px-4 py-2 text-sm text-slate-200 transition hover:bg-white/[0.05]"
+                      className="rounded-[18px] border border-white/[0.08] px-3.5 py-2 text-[13px] text-slate-200 transition hover:bg-white/[0.05]"
                     >
                       取消
                     </button>
@@ -2163,7 +2154,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                           ? handleRegenerateSubmit
                           : handleVideoSubmit
                       }
-                      className="inline-flex items-center gap-2 rounded-2xl bg-[#7c6df7] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
+                      className="inline-flex items-center gap-1.5 rounded-[18px] bg-[#7c6df7] px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       {actionPopover.isSubmitting ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -2203,27 +2194,23 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      <aside
-        className={`flex h-full w-[400px] shrink-0 flex-col border-l border-white/[0.06] bg-[#0e1119] ${
-          isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
-        }`}
-      >
-        <div className="border-b border-white/[0.06] px-5 py-4">
+      <aside className="flex h-full w-[380px] shrink-0 flex-col border-l border-white/[0.06] bg-[#0e1119]">
+        <div className="border-b border-white/[0.06] px-4 py-3.5">
           <div className="flex items-center justify-between">
-            <div ref={historyMenuRef} className="relative flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-white">AI 对话</h2>
+            <div ref={historyMenuRef} className="relative flex items-center gap-2.5">
+              <h2 className="text-[13px] font-semibold text-white">AI 对话</h2>
               <button
                 type="button"
                 onClick={() => setIsHistoryMenuOpen((previous) => !previous)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-xs text-slate-200 transition hover:bg-white/[0.06]"
+                className="inline-flex h-8 items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 text-[11px] text-slate-200 transition hover:bg-white/[0.06]"
               >
-                <History className="h-3.5 w-3.5" />
+                <History className="h-3 w-3" />
                 历史对话
-                <ChevronDown className={`h-3.5 w-3.5 transition ${isHistoryMenuOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`h-3 w-3 transition ${isHistoryMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {isHistoryMenuOpen ? (
-                <div className="absolute left-0 top-full z-40 mt-2 w-[260px] rounded-[24px] border border-white/[0.08] bg-[#171b26]/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                <div className="absolute left-0 top-full z-40 mt-2 w-[248px] rounded-[22px] border border-white/[0.08] bg-[#171b26]/98 p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
                   <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
                     {sessions.map((session) => (
                       <button
@@ -2233,16 +2220,16 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                           setCurrentSessionId(session.id);
                           setIsHistoryMenuOpen(false);
                         }}
-                        className={`w-full rounded-2xl border px-3 py-2.5 text-left transition ${
+                        className={`w-full rounded-[18px] border px-3 py-2 text-left transition ${
                           session.id === currentSessionId
                             ? 'border-[#8e81ff]/35 bg-[#2a2442] text-[#ece8ff]'
                             : 'border-transparent bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]'
                         }`}
                       >
-                        <div className="truncate text-sm font-medium">
+                        <div className="truncate text-[13px] font-medium">
                           {session.title || '新对话'}
                         </div>
-                        <div className="mt-1 text-[11px] text-slate-500">
+                        <div className="mt-1 text-[10px] text-slate-500">
                           {new Date(session.createdAt).toLocaleString('zh-CN')}
                         </div>
                       </button>
@@ -2253,7 +2240,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                     <button
                       type="button"
                       onClick={handleCreateSession}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white transition hover:bg-white/[0.06]"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-white transition hover:bg-white/[0.06]"
                     >
                       <Plus className="h-4 w-4" />
                       新建对话
@@ -2266,19 +2253,19 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
             <button
               type="button"
               onClick={handleCreateSession}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] transition hover:bg-white/[0.06]"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-[18px] border border-white/[0.08] bg-white/[0.03] transition hover:bg-white/[0.06]"
             >
               <Plus className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="space-y-2.5">
             {currentSession?.messages.map((message) => (
               <div
                 key={message.id}
-                className={`rounded-[24px] border px-4 py-3 text-sm leading-6 ${
+                className={`rounded-[20px] border px-3.5 py-2.5 text-[13px] leading-5.5 ${
                   message.role === 'user'
                     ? 'ml-8 border-[#8e81ff]/20 bg-[#2a2341] text-[#f0edff]'
                     : 'mr-8 border-white/[0.06] bg-white/[0.04] text-slate-100'
@@ -2289,14 +2276,14 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   <img
                     src={message.imageUrl}
                     alt="assistant result"
-                    className="mt-3 w-full rounded-2xl border border-white/[0.08] object-cover"
+                    className="mt-2.5 w-full rounded-[18px] border border-white/[0.08] object-cover"
                   />
                 ) : null}
               </div>
             ))}
 
             {isChatLoading ? (
-              <div className="mr-8 inline-flex items-center gap-2 rounded-[22px] border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
+              <div className="mr-8 inline-flex items-center gap-2 rounded-[18px] border border-white/[0.06] bg-white/[0.04] px-3.5 py-2.5 text-[13px] text-slate-200">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 正在思考与编排画布结果…
               </div>
@@ -2304,14 +2291,14 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
           </div>
         </div>
 
-        <div className="border-t border-white/[0.06] px-5 py-4">
-          <div className="mb-2 flex flex-wrap gap-2">
+        <div className="border-t border-white/[0.06] px-4 py-3.5">
+          <div className="flex flex-wrap gap-1.5">
             {SCENE_TAB_OPTIONS.map((tab) => (
               <button
                 key={tab.value}
                 type="button"
                 onClick={() => handleSelectScene(tab.value)}
-                className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
                   currentScene === tab.value
                     ? 'border-[#8e81ff]/40 bg-[#2a2442] text-[#ece8ff]'
                     : 'border-white/[0.08] bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'
@@ -2322,21 +2309,31 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
             ))}
           </div>
 
-          <div className="relative rounded-[26px] border border-white/[0.08] bg-white/[0.03] p-3">
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedImageModel}
-                onChange={(event) => setSelectedImageModel(event.target.value)}
-                className="h-9 w-[108px] rounded-xl border border-white/[0.08] bg-[#111522] px-3 text-sm text-white outline-none transition focus:border-[#8e81ff]/50"
-              >
-                {IMAGE_MODEL_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+          <div className="relative -mt-px rounded-[22px] border border-white/[0.08] bg-white/[0.03] p-2.5">
+            <div className="flex items-center gap-2.5 overflow-x-auto pb-1 pr-1">
+              {chatInputImages.map((item) => (
+                <div key={item.id} className="group relative h-12 w-12 shrink-0">
+                  <img
+                    src={item.data}
+                    alt={item.name || '参考图'}
+                    className="h-full w-full rounded-full border border-white/[0.08] object-cover shadow-[0_10px_24px_rgba(0,0,0,0.22)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setChatInputImages((previous) =>
+                        previous.filter((current) => current.id !== item.id)
+                      )
+                    }
+                    className="absolute -right-1 -top-1 inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-white/[0.12] bg-black/75 text-white opacity-0 transition group-hover:opacity-100 hover:bg-black/90"
+                    aria-label={`移除${item.name || '参考图'}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
 
-              <div ref={brandMenuRef} className="relative">
+              <div className="hidden" aria-hidden="true">
                 <button
                   type="button"
                   onClick={() => setIsBrandMenuOpen((previous) => !previous)}
@@ -2394,31 +2391,29 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               <button
                 type="button"
                 onClick={() => chatUploadInputRef.current?.click()}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-[#111522] text-slate-200 transition hover:bg-white/[0.06]"
+                disabled={chatInputImages.length >= CHAT_IMAGE_LIMIT}
+                className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-slate-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-45"
                 title="上传参考图"
               >
-                <ImagePlus className="h-4 w-4" />
+                <Plus className="h-5 w-5" />
               </button>
 
-              <div className="ml-auto text-[11px] text-slate-500">
-                {chatInputImages.length}/{CHAT_IMAGE_LIMIT}
-              </div>
             </div>
 
             {!isDoubaoConfigured() ? (
-              <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
+              <div className="mt-2.5 rounded-[18px] border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[10px] leading-4.5 text-amber-100">
                 未配置 `VITE_DOUBAO_API_KEY`，对话和出图会失败。
               </div>
             ) : null}
 
             {storageWarning ? (
-              <div className="mt-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] leading-5 text-slate-300">
+              <div className="mt-2.5 rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[10px] leading-4.5 text-slate-300">
                 {storageWarning}
               </div>
             ) : null}
 
             {chatInputImages.length > 0 ? (
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              <div className="mt-3 hidden gap-2 overflow-x-auto pb-1">
                 {chatInputImages.map((item) => (
                   <div
                     key={item.id}
@@ -2441,7 +2436,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               </div>
             ) : null}
 
-            <div className="mt-3 relative">
+            <div className="mt-3">
               <textarea
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
@@ -2453,10 +2448,10 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 }}
                 rows={4}
                 placeholder="告诉 AI 你想继续扩图、改风格、补场景还是生成一组新画面"
-                className="min-h-[112px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#0f131d] px-3 py-3 pr-[92px] text-sm leading-6 text-white outline-none placeholder:text-slate-500"
+                className="min-h-[104px] w-full resize-none rounded-[18px] border border-white/[0.08] bg-[#0f131d] px-3 py-2.5 text-[13px] leading-5.5 text-white outline-none placeholder:text-slate-500"
               />
 
-              <button
+              <button hidden
                 type="button"
                 disabled={isChatLoading || (!chatInput.trim() && chatInputImages.length === 0)}
                 onClick={() => {
@@ -2467,6 +2462,92 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 {isChatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 发送
               </button>
+            </div>
+
+            <div className="mt-2.5 flex items-center gap-2">
+              <select
+                value={selectedImageModel}
+                onChange={(event) => setSelectedImageModel(event.target.value)}
+                className="h-9 w-[104px] rounded-[11px] border border-white/[0.08] bg-[#111522] px-3 text-[13px] text-white outline-none transition focus:border-[#8e81ff]/50"
+              >
+                {IMAGE_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <div ref={brandMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsBrandMenuOpen((previous) => !previous)}
+                  className="inline-flex h-9 items-center gap-1 rounded-[11px] border border-white/[0.08] bg-[#111522] px-3 text-[13px] text-slate-200 transition hover:bg-white/[0.06]"
+                >
+                  品牌模板
+                  <ChevronDown className={`h-3 w-3 transition ${isBrandMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isBrandMenuOpen ? (
+                  <div className="absolute bottom-full left-0 z-40 mb-2 w-[248px] rounded-[20px] border border-white/[0.08] bg-[#171b26]/98 p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                    {brandTemplates.length > 0 ? (
+                      <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                        {brandTemplates.map((template) => (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => {
+                              void handleSelectBrandTemplate(template);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-[18px] border border-transparent bg-white/[0.03] p-2 text-left transition hover:bg-white/[0.06]"
+                          >
+                            <img
+                              src={template.image}
+                              alt={template.name}
+                              className="h-10 w-10 rounded-[11px] border border-white/[0.08] object-cover"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium text-white">{template.name}</div>
+                              <div className="mt-1 text-xs text-slate-400">点击附加到输入框</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-[18px] border border-dashed border-white/[0.08] bg-white/[0.03] px-3 py-3.5 text-center text-[11px] leading-5 text-slate-400">
+                        暂无品牌模板，先上传一个吧。
+                      </div>
+                    )}
+
+                    <div className="mt-3 border-t border-white/[0.06] pt-3">
+                      <button
+                        type="button"
+                        onClick={() => brandTemplateInputRef.current?.click()}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-white transition hover:bg-white/[0.06]"
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        上传新模板
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="ml-auto flex items-center gap-2.5">
+                <div className="text-[10px] text-slate-500">
+                  {chatInputImages.length}/{CHAT_IMAGE_LIMIT}
+                </div>
+                <button
+                  type="button"
+                  disabled={isChatLoading || (!chatInput.trim() && chatInputImages.length === 0)}
+                  onClick={() => {
+                    void handleSendMessage();
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-[18px] bg-[#7c6df7] px-3.5 text-[13px] font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {isChatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  发送
+                </button>
+              </div>
             </div>
           </div>
 
