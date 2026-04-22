@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   ChevronLeft,
   Clapperboard,
   Copy,
   Crop,
   Download,
+  History,
   ImagePlus,
   Loader2,
   MessageSquarePlus,
@@ -20,12 +22,14 @@ import {
   Video,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { addBrandTemplateHydrated, getBrandTemplatesHydrated } from '../store';
 import {
   chatWithAI,
   generateImageAI,
   isDoubaoConfigured,
 } from '../services/ai';
 import type {
+  BrandTemplate,
   CanvasItem,
   CanvasPoint,
   ChatInputImage,
@@ -37,6 +41,7 @@ import type {
 type ToolMode = 'select' | 'draw' | 'text' | 'shape';
 type ActionPopoverType = 'regenerate' | 'video';
 type CropAspect = 'freeform' | '1:1' | '4:3' | '16:9';
+type SceneTab = 'general' | 'main_image' | 'detail_image' | 'buyer_show';
 
 type ActionPopoverState = {
   type: ActionPopoverType;
@@ -62,6 +67,8 @@ type WorkspaceSnapshot = {
   sessions: ChatSession[];
   currentSessionId: string;
   view: ViewState;
+  selectedImageModel?: string;
+  sceneBySessionId?: Record<string, SceneTab>;
 };
 
 type ViewportSize = {
@@ -111,6 +118,11 @@ type ImageModelOption = {
   label: string;
 };
 
+type SceneTabOption = {
+  value: SceneTab;
+  label: string;
+};
+
 const STORAGE_KEY = 'ai_visual_workspace_v1';
 const DEFAULT_BOARD_NAME = 'AI视觉';
 const DEFAULT_VIEW: ViewState = {
@@ -124,6 +136,7 @@ const DEFAULT_VIEWPORT: ViewportSize = {
   height: 720,
 };
 const CHAT_IMAGE_LIMIT = 4;
+const DEFAULT_SCENE_TAB: SceneTab = 'general';
 const DRAW_STROKE_COLOR = '#f2f5fb';
 const DRAW_STROKE_WIDTH = 4;
 const MIN_SCALE = 0.35;
@@ -137,6 +150,12 @@ const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
   },
 ];
 const DEFAULT_IMAGE_MODEL_OPTION = IMAGE_MODEL_OPTIONS[0];
+const SCENE_TAB_OPTIONS: SceneTabOption[] = [
+  { value: 'general', label: '通用' },
+  { value: 'main_image', label: '主图' },
+  { value: 'detail_image', label: '详情' },
+  { value: 'buyer_show', label: '买家秀' },
+];
 
 function createEmptySession(): ChatSession {
   return {
@@ -145,6 +164,36 @@ function createEmptySession(): ChatSession {
     messages: [],
     createdAt: Date.now(),
   };
+}
+
+function normalizeSceneTab(value: unknown): SceneTab {
+  if (value === 'main_image' || value === 'detail_image' || value === 'buyer_show') {
+    return value;
+  }
+  return DEFAULT_SCENE_TAB;
+}
+
+function getSceneTabLabel(scene: SceneTab) {
+  return SCENE_TAB_OPTIONS.find((item) => item.value === scene)?.label || SCENE_TAB_OPTIONS[0].label;
+}
+
+function buildSceneAwarePrompt(scene: SceneTab, text: string) {
+  return `当前创作场景：${getSceneTabLabel(scene)}\n${text}`.trim();
+}
+
+function getDefaultSceneBySessionId(sessions: ChatSession[], previous?: Record<string, SceneTab>) {
+  const next: Record<string, SceneTab> = {};
+  for (const session of sessions) {
+    next[session.id] = normalizeSceneTab(previous?.[session.id]);
+  }
+  return next;
+}
+
+function normalizeImageModel(value: unknown) {
+  if (typeof value !== 'string') return DEFAULT_IMAGE_MODEL_OPTION.value;
+  return IMAGE_MODEL_OPTIONS.some((option) => option.value === value)
+    ? value
+    : DEFAULT_IMAGE_MODEL_OPTION.value;
 }
 
 function normalizeView(view?: Partial<ViewState> | null): ViewState {
@@ -227,6 +276,8 @@ function loadWorkspaceSnapshot(): WorkspaceSnapshot {
       sessions: [session],
       currentSessionId: session.id,
       view: { ...DEFAULT_VIEW },
+      selectedImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
+      sceneBySessionId: { [session.id]: DEFAULT_SCENE_TAB },
     };
   }
 
@@ -240,6 +291,8 @@ function loadWorkspaceSnapshot(): WorkspaceSnapshot {
         sessions: [session],
         currentSessionId: session.id,
         view: { ...DEFAULT_VIEW },
+        selectedImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
+        sceneBySessionId: { [session.id]: DEFAULT_SCENE_TAB },
       };
     }
 
@@ -285,6 +338,13 @@ function loadWorkspaceSnapshot(): WorkspaceSnapshot {
       sessions,
       currentSessionId,
       view: normalizeView(parsed.view),
+      selectedImageModel: normalizeImageModel(parsed.selectedImageModel),
+      sceneBySessionId: getDefaultSceneBySessionId(
+        sessions,
+        parsed.sceneBySessionId && typeof parsed.sceneBySessionId === 'object'
+          ? parsed.sceneBySessionId
+          : undefined
+      ),
     };
   } catch {
     const session = createEmptySession();
@@ -294,6 +354,8 @@ function loadWorkspaceSnapshot(): WorkspaceSnapshot {
       sessions: [session],
       currentSessionId: session.id,
       view: { ...DEFAULT_VIEW },
+      selectedImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
+      sceneBySessionId: { [session.id]: DEFAULT_SCENE_TAB },
     };
   }
 }
@@ -644,12 +706,20 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   const [tool, setTool] = useState<ToolMode>('select');
   const [chatInput, setChatInput] = useState('');
   const [chatInputImages, setChatInputImages] = useState<ChatInputImage[]>([]);
+  const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [sceneBySessionId, setSceneBySessionId] = useState<Record<string, SceneTab>>(
+    initialSnapshot.sceneBySessionId || {}
+  );
   const [actionPopover, setActionPopover] = useState<ActionPopoverState | null>(null);
   const [cropState, setCropState] = useState<CropState | null>(null);
   const [cropPreviewSize, setCropPreviewSize] = useState<MediaDimensions | null>(null);
   const [drawPreviewPoints, setDrawPreviewPoints] = useState<CanvasPoint[] | null>(null);
-  const [selectedImageModel, setSelectedImageModel] = useState(DEFAULT_IMAGE_MODEL_OPTION.value);
+  const [selectedImageModel, setSelectedImageModel] = useState(
+    initialSnapshot.selectedImageModel || DEFAULT_IMAGE_MODEL_OPTION.value
+  );
+  const [isHistoryMenuOpen, setIsHistoryMenuOpen] = useState(false);
+  const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [canvasHover, setCanvasHover] = useState(false);
   const [canvasWheelLock, setCanvasWheelLock] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
@@ -661,6 +731,9 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const chatUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const brandTemplateInputRef = useRef<HTMLInputElement | null>(null);
+  const historyMenuRef = useRef<HTMLDivElement | null>(null);
+  const brandMenuRef = useRef<HTMLDivElement | null>(null);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
 
@@ -705,6 +778,18 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   }, [statusNotice]);
 
   useEffect(() => {
+    let cancelled = false;
+    void getBrandTemplatesHydrated().then((templates) => {
+      if (!cancelled) {
+        setBrandTemplates(templates);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     const element = canvasViewportRef.current;
     if (!element) return undefined;
 
@@ -739,6 +824,15 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
       setCurrentSessionId(sessions[0].id);
     }
   }, [sessions, currentSessionId]);
+
+  useEffect(() => {
+    setSceneBySessionId((previous) => {
+      const next = getDefaultSceneBySessionId(sessions, previous);
+      const sameLength = Object.keys(next).length === Object.keys(previous).length;
+      const unchanged = sameLength && Object.keys(next).every((key) => next[key] === previous[key]);
+      return unchanged ? previous : next;
+    });
+  }, [sessions]);
 
   useEffect(() => {
     if (!cropState) return;
@@ -784,6 +878,8 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         sessions,
         currentSessionId,
         view,
+        selectedImageModel,
+        sceneBySessionId,
       };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       setStorageWarning(null);
@@ -791,12 +887,28 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
       const message = getErrorMessage(error);
       setStorageWarning(`本地保存失败：${message}`);
     }
-  }, [boardName, items, sessions, currentSessionId, view]);
+  }, [boardName, items, sessions, currentSessionId, sceneBySessionId, selectedImageModel, view]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (historyMenuRef.current && target && !historyMenuRef.current.contains(target)) {
+        setIsHistoryMenuOpen(false);
+      }
+      if (brandMenuRef.current && target && !brandMenuRef.current.contains(target)) {
+        setIsBrandMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => window.removeEventListener('mousedown', handlePointerDown);
+  }, []);
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) || sessions[0] || null,
     [sessions, currentSessionId]
   );
+  const currentScene = currentSession ? sceneBySessionId[currentSession.id] || DEFAULT_SCENE_TAB : DEFAULT_SCENE_TAB;
 
   const selectedItemId = view.selectedItemIds[0] || null;
   const selectedItem = selectedItemId
@@ -991,6 +1103,39 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         },
       ];
     });
+  }
+
+  function handleCreateSession() {
+    const session = createEmptySession();
+    setSessions((previous) => [session, ...previous]);
+    setCurrentSessionId(session.id);
+    setSceneBySessionId((previous) => ({
+      ...previous,
+      [session.id]: DEFAULT_SCENE_TAB,
+    }));
+    setIsHistoryMenuOpen(false);
+  }
+
+  function handleSelectScene(scene: SceneTab) {
+    if (!currentSession) return;
+    setSceneBySessionId((previous) => ({
+      ...previous,
+      [currentSession.id]: scene,
+    }));
+  }
+
+  async function handleSelectBrandTemplate(template: BrandTemplate) {
+    await addChatReferenceImage(template.image, template.name, 'brand');
+    setIsBrandMenuOpen(false);
+  }
+
+  async function handleUploadBrandTemplate(file: File) {
+    const data = await readFileAsDataUrl(file);
+    const template = await addBrandTemplateHydrated(file.name.replace(/\.[^.]+$/, ''), data);
+    setBrandTemplates((previous) => [template, ...previous.filter((item) => item.id !== template.id)]);
+    await addChatReferenceImage(template.image, template.name, 'brand');
+    setIsBrandMenuOpen(false);
+    setStatusNotice('品牌模板已加入输入框。');
   }
 
   async function importImageFiles(files: FileList | null) {
@@ -1364,6 +1509,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
     if (!text && attachedImages.length === 0) return;
 
     const effectiveText = text || '请基于这些参考图继续创作。';
+    const effectiveTextForModel = buildSceneAwarePrompt(currentScene, effectiveText);
     const userMessage: ChatMessage = {
       id: uuidv4(),
       role: 'user',
@@ -1395,7 +1541,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         content: message.content,
       }));
 
-      const response = await chatWithAI(history, effectiveText, attachedImages);
+      const response = await chatWithAI(history, effectiveTextForModel, attachedImages);
       let nextAssistantMessages: ChatMessage[] | null = null;
 
       updateCurrentSessionMessages(currentSession.id, (previous) => {
@@ -1522,7 +1668,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
     <div className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100">
       <div className="flex min-w-0 flex-1 flex-col">
         <header
-          className={`flex h-[68px] items-center justify-between border-b border-white/[0.06] bg-[#0d111a]/95 px-5 ${
+          className={`flex h-[68px] items-center border-b border-white/[0.06] bg-[#0d111a]/95 px-5 ${
             isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
           }`}
         >
@@ -1541,11 +1687,6 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               onChange={(event) => setBoardName(event.target.value)}
               className="w-[220px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-lg font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
             />
-          </div>
-
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#8e81ff]/20 bg-[#201d36] px-4 py-2 text-xs text-[#d5d0ff]">
-            <Sparkles className="h-4 w-4" />
-            左侧画布创作，右侧对话协作
           </div>
         </header>
 
@@ -1940,40 +2081,66 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
       >
         <div className="border-b border-white/[0.06] px-5 py-4">
           <div className="flex items-center justify-between">
-            <div>
+            <div ref={historyMenuRef} className="relative flex items-center gap-3">
               <h2 className="text-sm font-semibold text-white">AI 对话</h2>
-              <p className="mt-1 text-xs text-slate-400">
-                {currentSession?.title || '新对话'}
-              </p>
+              <button
+                type="button"
+                onClick={() => setIsHistoryMenuOpen((previous) => !previous)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-xs text-slate-200 transition hover:bg-white/[0.06]"
+              >
+                <History className="h-3.5 w-3.5" />
+                历史对话
+                <ChevronDown className={`h-3.5 w-3.5 transition ${isHistoryMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isHistoryMenuOpen ? (
+                <div className="absolute left-0 top-full z-40 mt-2 w-[260px] rounded-[24px] border border-white/[0.08] bg-[#171b26]/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                  <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                    {sessions.map((session) => (
+                      <button
+                        key={session.id}
+                        type="button"
+                        onClick={() => {
+                          setCurrentSessionId(session.id);
+                          setIsHistoryMenuOpen(false);
+                        }}
+                        className={`w-full rounded-2xl border px-3 py-2.5 text-left transition ${
+                          session.id === currentSessionId
+                            ? 'border-[#8e81ff]/35 bg-[#2a2442] text-[#ece8ff]'
+                            : 'border-transparent bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="truncate text-sm font-medium">
+                          {session.title || '新对话'}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          {new Date(session.createdAt).toLocaleString('zh-CN')}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 border-t border-white/[0.06] pt-3">
+                    <button
+                      type="button"
+                      onClick={handleCreateSession}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white transition hover:bg-white/[0.06]"
+                    >
+                      <Plus className="h-4 w-4" />
+                      新建对话
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
+
             <button
               type="button"
-              onClick={() => {
-                const session = createEmptySession();
-                setSessions((previous) => [session, ...previous]);
-                setCurrentSessionId(session.id);
-              }}
+              onClick={handleCreateSession}
               className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] transition hover:bg-white/[0.06]"
             >
               <Plus className="h-4 w-4" />
             </button>
-          </div>
-
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => setCurrentSessionId(session.id)}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs transition ${
-                  session.id === currentSessionId
-                    ? 'border-[#8e81ff]/40 bg-[#2a2442] text-[#e4e0ff]'
-                    : 'border-white/[0.08] bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'
-                }`}
-              >
-                {session.title || '新对话'}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -2009,18 +2176,29 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="border-t border-white/[0.06] px-5 py-4">
-          <div className="space-y-3">
-            <div className="rounded-[26px] border border-white/[0.08] bg-white/[0.03] p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-medium text-white">出图模型</div>
-                <div className="rounded-full border border-[#8e81ff]/25 bg-[#282245] px-2.5 py-1 text-[11px] text-[#d9d3ff]">
-                  默认选中
-                </div>
-              </div>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {SCENE_TAB_OPTIONS.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => handleSelectScene(tab.value)}
+                className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                  currentScene === tab.value
+                    ? 'border-[#8e81ff]/40 bg-[#2a2442] text-[#ece8ff]'
+                    : 'border-white/[0.08] bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative rounded-[26px] border border-white/[0.08] bg-white/[0.03] p-3">
+            <div className="flex items-center gap-2">
               <select
                 value={selectedImageModel}
                 onChange={(event) => setSelectedImageModel(event.target.value)}
-                className="w-full rounded-2xl border border-white/[0.08] bg-[#111522] px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#8e81ff]/50"
+                className="h-9 w-[108px] rounded-xl border border-white/[0.08] bg-[#111522] px-3 text-sm text-white outline-none transition focus:border-[#8e81ff]/50"
               >
                 {IMAGE_MODEL_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -2028,29 +2206,90 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   </option>
                 ))}
               </select>
-              <div className="mt-2 text-xs leading-5 text-slate-400">
-                当前模型 ID：{selectedImageModel}
+
+              <div ref={brandMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsBrandMenuOpen((previous) => !previous)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#111522] px-3 text-sm text-slate-200 transition hover:bg-white/[0.06]"
+                >
+                  品牌模板
+                  <ChevronDown className={`h-3.5 w-3.5 transition ${isBrandMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isBrandMenuOpen ? (
+                  <div className="absolute left-0 top-full z-40 mt-2 w-[260px] rounded-[22px] border border-white/[0.08] bg-[#171b26]/98 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                    {brandTemplates.length > 0 ? (
+                      <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                        {brandTemplates.map((template) => (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => {
+                              void handleSelectBrandTemplate(template);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-2xl border border-transparent bg-white/[0.03] p-2 text-left transition hover:bg-white/[0.06]"
+                          >
+                            <img
+                              src={template.image}
+                              alt={template.name}
+                              className="h-12 w-12 rounded-xl border border-white/[0.08] object-cover"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium text-white">{template.name}</div>
+                              <div className="mt-1 text-xs text-slate-400">点击附加到输入框</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.03] px-3 py-4 text-center text-xs leading-5 text-slate-400">
+                        暂无品牌模板，先上传一个吧。
+                      </div>
+                    )}
+
+                    <div className="mt-3 border-t border-white/[0.06] pt-3">
+                      <button
+                        type="button"
+                        onClick={() => brandTemplateInputRef.current?.click()}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white transition hover:bg-white/[0.06]"
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        上传新模板
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => chatUploadInputRef.current?.click()}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-[#111522] text-slate-200 transition hover:bg-white/[0.06]"
+                title="上传参考图"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </button>
+
+              <div className="ml-auto text-[11px] text-slate-500">
+                {chatInputImages.length}/{CHAT_IMAGE_LIMIT}
               </div>
             </div>
 
             {!isDoubaoConfigured() ? (
-              <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
-                未配置 `VITE_DOUBAO_API_KEY`，AI 对话和图片重生成会失败，但画布编辑仍可正常使用。
+              <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
+                未配置 `VITE_DOUBAO_API_KEY`，对话和出图会失败。
               </div>
             ) : null}
 
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-300">
-              “生成视频”按钮会保留显示，但当前版本先禁用占位。{VIDEO_DISABLED_REASON}
-            </div>
-
             {storageWarning ? (
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-300">
+              <div className="mt-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] leading-5 text-slate-300">
                 {storageWarning}
               </div>
             ) : null}
 
             {chatInputImages.length > 0 ? (
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 {chatInputImages.map((item) => (
                   <div
                     key={item.id}
@@ -2071,54 +2310,34 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-3 text-xs leading-5 text-slate-400">
-                选中画布里的图片后点“添加到对话”，或者直接上传参考图。
-              </div>
-            )}
+            ) : null}
 
-            <div className="flex items-end gap-2">
+            <div className="mt-3 flex items-end gap-2">
+              <textarea
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void handleSendMessage();
+                  }
+                }}
+                rows={4}
+                placeholder="告诉 AI 你想继续扩图、改风格、补场景还是生成一组新画面"
+                className="min-h-[104px] flex-1 resize-none rounded-2xl border border-white/[0.08] bg-[#0f131d] px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500"
+              />
+
               <button
                 type="button"
-                onClick={() => chatUploadInputRef.current?.click()}
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] transition hover:bg-white/[0.06]"
-                title="上传参考图"
+                disabled={isChatLoading || (!chatInput.trim() && chatInputImages.length === 0)}
+                onClick={() => {
+                  void handleSendMessage();
+                }}
+                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[#7c6df7] px-4 text-sm font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <ImagePlus className="h-4.5 w-4.5" />
+                {isChatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                发送
               </button>
-
-              <div className="min-w-0 flex-1 rounded-[26px] border border-white/[0.08] bg-white/[0.03] p-2">
-                <textarea
-                  value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      void handleSendMessage();
-                    }
-                  }}
-                  rows={4}
-                  placeholder="告诉 AI 你想继续扩图、改风格、补场景还是生成一组新画面"
-                  className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-500"
-                />
-
-                <div className="flex items-center justify-between px-1 pb-1">
-                  <div className="text-xs text-slate-500">
-                    已附加 {chatInputImages.length}/{CHAT_IMAGE_LIMIT} 张参考图
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isChatLoading || (!chatInput.trim() && chatInputImages.length === 0)}
-                    onClick={() => {
-                      void handleSendMessage();
-                    }}
-                    className="inline-flex h-10 items-center gap-2 rounded-2xl bg-[#7c6df7] px-4 text-sm font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    {isChatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    发送
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -2134,6 +2353,22 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               try {
                 const data = await readFileAsDataUrl(file);
                 await addChatReferenceImage(data, file.name, 'local');
+              } catch (error) {
+                setStatusNotice(getErrorMessage(error));
+              }
+            }}
+          />
+          <input
+            ref={brandTemplateInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (!file) return;
+              try {
+                await handleUploadBrandTemplate(file);
               } catch (error) {
                 setStatusNotice(getErrorMessage(error));
               }
