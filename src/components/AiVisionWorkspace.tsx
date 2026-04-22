@@ -23,10 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   chatWithAI,
   generateImageAI,
-  generateVideoAI,
   isDoubaoConfigured,
-  isDoubaoVideoConfigured,
-  pollVideoTask,
 } from '../services/ai';
 import type {
   CanvasItem,
@@ -109,6 +106,11 @@ type CropRect = {
   height: number;
 };
 
+type ImageModelOption = {
+  value: string;
+  label: string;
+};
+
 const STORAGE_KEY = 'ai_visual_workspace_v1';
 const DEFAULT_BOARD_NAME = 'AI视觉';
 const DEFAULT_VIEW: ViewState = {
@@ -126,6 +128,15 @@ const DRAW_STROKE_COLOR = '#f2f5fb';
 const DRAW_STROKE_WIDTH = 4;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 2.4;
+const CANVAS_WHEEL_LOCK_MS = 220;
+const VIDEO_DISABLED_REASON = '缺少视频模型 ID，待补充后启用。';
+const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
+  {
+    value: 'doubao-seedream-5-0-260128',
+    label: '豆包5.0',
+  },
+];
+const DEFAULT_IMAGE_MODEL_OPTION = IMAGE_MODEL_OPTIONS[0];
 
 function createEmptySession(): ChatSession {
   return {
@@ -289,10 +300,6 @@ function loadWorkspaceSnapshot(): WorkspaceSnapshot {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function sanitizeFilename(value: string) {
@@ -568,21 +575,6 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isVideoTaskCompleted(status: string, videoUrl?: string) {
-  if (videoUrl) return true;
-  const normalized = status.trim().toLowerCase();
-  return ['succeeded', 'success', 'completed', 'done', 'finished'].some((token) =>
-    normalized.includes(token)
-  );
-}
-
-function isVideoTaskFailed(status: string) {
-  const normalized = status.trim().toLowerCase();
-  return ['failed', 'error', 'canceled', 'cancelled', 'rejected'].some((token) =>
-    normalized.includes(token)
-  );
-}
-
 function ToolbarButton({
   icon: Icon,
   label,
@@ -629,11 +621,11 @@ function ContextButton({
   return (
     <button
       type="button"
-      disabled={disabled}
+      aria-disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-100 transition hover:bg-white/[0.08] ${
+      className={`inline-flex h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-100 transition ${
         textOnly ? 'min-w-[138px] justify-center' : 'justify-center'
-      } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+      } ${disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-white/[0.08]'}`}
     >
       <Icon className="h-4.5 w-4.5" />
       {textOnly ? <span>{label}</span> : null}
@@ -657,14 +649,19 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   const [cropState, setCropState] = useState<CropState | null>(null);
   const [cropPreviewSize, setCropPreviewSize] = useState<MediaDimensions | null>(null);
   const [drawPreviewPoints, setDrawPreviewPoints] = useState<CanvasPoint[] | null>(null);
+  const [selectedImageModel, setSelectedImageModel] = useState(DEFAULT_IMAGE_MODEL_OPTION.value);
+  const [canvasHover, setCanvasHover] = useState(false);
+  const [canvasWheelLock, setCanvasWheelLock] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportSize>(DEFAULT_VIEWPORT);
 
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+  const cropPanelRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const chatUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
 
   const itemsRef = useRef(items);
@@ -692,6 +689,14 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     viewportSizeRef.current = viewportSize;
   }, [viewportSize]);
+
+  useEffect(() => {
+    return () => {
+      if (wheelLockTimerRef.current) {
+        window.clearTimeout(wheelLockTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!statusNotice) return undefined;
@@ -736,6 +741,42 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   }, [sessions, currentSessionId]);
 
   useEffect(() => {
+    if (!cropState) return;
+    setCanvasHover(false);
+    setCanvasWheelLock(false);
+    if (wheelLockTimerRef.current) {
+      window.clearTimeout(wheelLockTimerRef.current);
+      wheelLockTimerRef.current = null;
+    }
+  }, [cropState]);
+
+  useEffect(() => {
+    if (cropState) return undefined;
+
+    const handleWheelCapture = (event: WheelEvent) => {
+      if (!(canvasHover || canvasWheelLock)) return;
+      const canvas = canvasViewportRef.current;
+      if (!canvas) return;
+
+      const targetNode = event.target instanceof Node ? event.target : null;
+      const isInsideCanvas = Boolean(targetNode && canvas.contains(targetNode));
+      if (isInsideCanvas) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener('wheel', handleWheelCapture, {
+      capture: true,
+      passive: false,
+    });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheelCapture, true);
+    };
+  }, [canvasHover, canvasWheelLock, cropState]);
+
+  useEffect(() => {
     try {
       const payload: WorkspaceSnapshot = {
         boardName,
@@ -769,6 +810,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         top: view.y + selectedImageItem.y * view.scale - 18,
       }
     : null;
+  const isOutsideCanvasLocked = canvasWheelLock && !cropState;
 
   const cropTargetItem =
     cropState && items.find((item) => item.id === cropState.itemId && item.type === 'image')
@@ -899,6 +941,17 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
       ...previous,
       selectedItemIds: itemId ? [itemId] : [],
     }));
+  }
+
+  function armCanvasWheelLock() {
+    setCanvasWheelLock(true);
+    if (wheelLockTimerRef.current) {
+      window.clearTimeout(wheelLockTimerRef.current);
+    }
+    wheelLockTimerRef.current = window.setTimeout(() => {
+      setCanvasWheelLock(false);
+      wheelLockTimerRef.current = null;
+    }, CANVAS_WHEEL_LOCK_MS);
   }
 
   function updateCurrentSessionMessages(
@@ -1128,10 +1181,12 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   }
 
   function handleCanvasWheel(event: React.WheelEvent<HTMLDivElement>) {
+    if (cropState) return;
     event.preventDefault();
     const canvas = canvasViewportRef.current;
     if (!canvas) return;
 
+    armCanvasWheelLock();
     const rect = canvas.getBoundingClientRect();
     const originX = event.clientX - rect.left;
     const originY = event.clientY - rect.top;
@@ -1205,13 +1260,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   }
 
   function openVideoPopover() {
-    if (!selectedImageItem) return;
-    setActionPopover({
-      type: 'video',
-      itemId: selectedImageItem.id,
-      prompt: selectedImageItem.prompt || '',
-      isSubmitting: false,
-    });
+    setStatusNotice(VIDEO_DISABLED_REASON);
   }
 
   function openCropModal() {
@@ -1246,7 +1295,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
     );
 
     try {
-      const nextImage = await generateImageAI(prompt, undefined, [targetItem.content]);
+      const nextImage = await generateImageAI(prompt, selectedImageModel, [targetItem.content]);
       setItems((previous) =>
         previous.map((item) =>
           item.id === targetItem.id
@@ -1271,117 +1320,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   }
 
   async function handleVideoSubmit() {
-    if (!actionPopover || actionPopover.type !== 'video') return;
-    const targetItem = itemsRef.current.find(
-      (item) => item.id === actionPopover.itemId && item.type === 'image'
-    );
-    if (!targetItem) return;
-
-    const prompt = actionPopover.prompt.trim();
-    if (!prompt) {
-      setStatusNotice('请先输入视频提示词。');
-      return;
-    }
-
-    setActionPopover((previous) =>
-      previous ? { ...previous, isSubmitting: true } : previous
-    );
-
-    const preferred = {
-      x: targetItem.x + targetItem.width + 40,
-      y: targetItem.y,
-    };
-    const loadingItemId = createLoadingItem('正在创建视频任务…', preferred);
-
-    try {
-      const task = await generateVideoAI(prompt, [targetItem.content]);
-      setItems((previous) =>
-        previous.map((item) =>
-          item.id === loadingItemId
-            ? {
-                ...item,
-                content: '视频任务已创建，正在生成中…',
-                prompt,
-              }
-            : item
-        )
-      );
-
-      let finalVideoUrl = '';
-      let finalStatus = task.status || 'PENDING';
-
-      for (let attempt = 0; attempt < 90; attempt += 1) {
-        await wait(2500);
-        const result = await pollVideoTask(task.taskId);
-        finalStatus = result.status;
-        if (isVideoTaskCompleted(result.status, result.videoUrl)) {
-          finalVideoUrl = result.videoUrl || '';
-          break;
-        }
-        if (isVideoTaskFailed(result.status)) {
-          throw new Error(`视频生成失败：${result.status}`);
-        }
-
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === loadingItemId
-              ? {
-                  ...item,
-                  content:
-                    result.progress > 0
-                      ? `视频生成中 ${Math.round(result.progress)}%`
-                      : `视频生成中：${result.status}`,
-                }
-              : item
-          )
-        );
-      }
-
-      if (!finalVideoUrl) {
-        throw new Error(`视频任务未在预期时间内完成，当前状态：${finalStatus}`);
-      }
-
-      const videoSize = await loadVideoDimensions(finalVideoUrl).catch(() => ({
-        width: 1280,
-        height: 720,
-      }));
-      const fitted = fitIntoBounds(videoSize.width, videoSize.height, 560, 360);
-
-      setItems((previous) =>
-        previous.map((item) =>
-          item.id === loadingItemId
-            ? {
-                ...item,
-                type: 'video',
-                width: fitted.width,
-                height: fitted.height,
-                content: finalVideoUrl,
-                prompt,
-                mimeType: 'video/mp4',
-                sourceKind: 'generated',
-              }
-            : item
-        )
-      );
-      setActionPopover(null);
-      setStatusNotice('视频已生成到画布。');
-    } catch (error) {
-      const message = getErrorMessage(error);
-      setItems((previous) =>
-        previous.map((item) =>
-          item.id === loadingItemId
-            ? {
-                ...item,
-                content: message,
-              }
-            : item
-        )
-      );
-      setActionPopover((previous) =>
-        previous ? { ...previous, isSubmitting: false } : previous
-      );
-      setStatusNotice(message);
-    }
+    setStatusNotice(VIDEO_DISABLED_REASON);
   }
 
   async function handleCropConfirm() {
@@ -1485,7 +1424,11 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
           const loadingItemId = createLoadingItem(prompt || '正在生成图片…');
 
           try {
-            const imageUrl = await generateImageAI(prompt, undefined, call.args.referenceImages || attachedImages);
+            const imageUrl = await generateImageAI(
+              prompt,
+              selectedImageModel,
+              call.args.referenceImages || attachedImages
+            );
             const imageSize = await loadImageDimensions(imageUrl).catch(() => ({
               width: 1024,
               height: 1024,
@@ -1578,7 +1521,11 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[68px] items-center justify-between border-b border-white/[0.06] bg-[#0d111a]/95 px-5">
+        <header
+          className={`flex h-[68px] items-center justify-between border-b border-white/[0.06] bg-[#0d111a]/95 px-5 ${
+            isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
+          }`}
+        >
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -1605,6 +1552,12 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         <div className="relative min-h-0 flex-1">
           <div
             ref={canvasViewportRef}
+            onPointerEnter={() => {
+              if (!cropState) setCanvasHover(true);
+            }}
+            onPointerLeave={() => {
+              setCanvasHover(false);
+            }}
             onPointerDown={handleCanvasPointerDown}
             onWheel={handleCanvasWheel}
             className="relative h-full overflow-hidden bg-[#0b0d14]"
@@ -1823,17 +1776,27 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   transform: 'translate(-50%, -100%)',
                 }}
               >
-                <div className="inline-flex items-center gap-1 rounded-[24px] border border-white/[0.08] bg-[#1e212d]/95 px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+                <div
+                  className={`inline-flex items-center gap-1 rounded-[24px] border border-white/[0.08] bg-[#1e212d]/95 px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl ${
+                    isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
+                  }`}
+                >
                   <ContextButton
                     icon={RefreshCcw}
                     label="重新生成"
                     disabled={!isDoubaoConfigured()}
-                    onClick={openRegeneratePopover}
+                    onClick={() => {
+                      if (!isDoubaoConfigured()) {
+                        setStatusNotice('未配置 VITE_DOUBAO_API_KEY，暂时无法重新生成。');
+                        return;
+                      }
+                      openRegeneratePopover();
+                    }}
                   />
                   <ContextButton
                     icon={Clapperboard}
                     label="生成视频"
-                    disabled={!isDoubaoVideoConfigured()}
+                    disabled
                     onClick={openVideoPopover}
                   />
                   <div className="mx-1 h-6 w-px bg-white/[0.08]" />
@@ -1860,7 +1823,11 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                   transform: 'translate(-50%, -100%)',
                 }}
               >
-                <div className="rounded-[28px] border border-white/[0.08] bg-[#161925]/97 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+                <div
+                  className={`rounded-[28px] border border-white/[0.08] bg-[#161925]/97 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl ${
+                    isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
+                  }`}
+                >
                   <div className="mb-3 flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-white">
@@ -1899,9 +1866,9 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                     </div>
                   ) : null}
 
-                  {!isDoubaoVideoConfigured() && actionPopover.type === 'video' ? (
+                  {actionPopover.type === 'video' ? (
                     <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                      需要同时配置 `VITE_DOUBAO_API_KEY` 和 `VITE_DOUBAO_VIDEO_MODEL` 才能生成视频。
+                      {VIDEO_DISABLED_REASON}
                     </div>
                   ) : null}
 
@@ -1919,7 +1886,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                         actionPopover.isSubmitting ||
                         (actionPopover.type === 'regenerate'
                           ? !isDoubaoConfigured()
-                          : !isDoubaoVideoConfigured())
+                          : true)
                       }
                       onClick={
                         actionPopover.type === 'regenerate'
@@ -1966,7 +1933,11 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      <aside className="flex h-full w-[400px] shrink-0 flex-col border-l border-white/[0.06] bg-[#0e1119]">
+      <aside
+        className={`flex h-full w-[400px] shrink-0 flex-col border-l border-white/[0.06] bg-[#0e1119] ${
+          isOutsideCanvasLocked ? 'pointer-events-none select-none' : ''
+        }`}
+      >
         <div className="border-b border-white/[0.06] px-5 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -2039,20 +2010,41 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
 
         <div className="border-t border-white/[0.06] px-5 py-4">
           <div className="space-y-3">
+            <div className="rounded-[26px] border border-white/[0.08] bg-white/[0.03] p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-medium text-white">出图模型</div>
+                <div className="rounded-full border border-[#8e81ff]/25 bg-[#282245] px-2.5 py-1 text-[11px] text-[#d9d3ff]">
+                  默认选中
+                </div>
+              </div>
+              <select
+                value={selectedImageModel}
+                onChange={(event) => setSelectedImageModel(event.target.value)}
+                className="w-full rounded-2xl border border-white/[0.08] bg-[#111522] px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#8e81ff]/50"
+              >
+                {IMAGE_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 text-xs leading-5 text-slate-400">
+                当前模型 ID：{selectedImageModel}
+              </div>
+            </div>
+
             {!isDoubaoConfigured() ? (
               <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
                 未配置 `VITE_DOUBAO_API_KEY`，AI 对话和图片重生成会失败，但画布编辑仍可正常使用。
               </div>
             ) : null}
 
-            {!isDoubaoVideoConfigured() ? (
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-300">
-                未配置 `VITE_DOUBAO_VIDEO_MODEL`，图片顶部的“生成视频”按钮会保留显示，但会处于禁用状态。
-              </div>
-            ) : null}
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-300">
+              “生成视频”按钮会保留显示，但当前版本先禁用占位。{VIDEO_DISABLED_REASON}
+            </div>
 
             {storageWarning ? (
-              <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-300">
                 {storageWarning}
               </div>
             ) : null}
@@ -2185,7 +2177,10 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-5 overflow-y-auto border-l border-white/[0.06] bg-[#121723] px-6 py-6">
+              <div
+                ref={cropPanelRef}
+                className="flex flex-col gap-5 overflow-y-auto border-l border-white/[0.06] bg-[#121723] px-6 py-6"
+              >
                 <div>
                   <div className="mb-3 text-sm font-medium text-white">比例</div>
                   <div className="flex flex-wrap gap-2">
