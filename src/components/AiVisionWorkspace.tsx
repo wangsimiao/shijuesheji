@@ -10,11 +10,13 @@ import {
   ImagePlus,
   Loader2,
   MessageSquarePlus,
+  Minus,
   MousePointer2,
   Pencil,
   Plus,
   RectangleHorizontal,
   RefreshCcw,
+  Scan,
   Send,
   Sparkles,
   Trash2,
@@ -139,9 +141,11 @@ const CHAT_IMAGE_LIMIT = 4;
 const DEFAULT_SCENE_TAB: SceneTab = 'general';
 const DRAW_STROKE_COLOR = '#f2f5fb';
 const DRAW_STROKE_WIDTH = 4;
+const FIT_VIEW_PADDING = 120;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 2.4;
 const CANVAS_WHEEL_LOCK_MS = 220;
+const CANVAS_ZOOM_STEP = 1.12;
 const VIDEO_DISABLED_REASON = '缺少视频模型 ID，待补充后启用。';
 const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
   {
@@ -1066,6 +1070,86 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
     }, CANVAS_WHEEL_LOCK_MS);
   }
 
+  function updateScaleFromViewportPoint(nextScale: number, originX: number, originY: number) {
+    setView((previous) => {
+      const safeScale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
+      const worldX = (originX - previous.x) / previous.scale;
+      const worldY = (originY - previous.y) / previous.scale;
+
+      return {
+        ...previous,
+        scale: safeScale,
+        x: originX - worldX * safeScale,
+        y: originY - worldY * safeScale,
+      };
+    });
+  }
+
+  function getCanvasViewportCenter() {
+    return {
+      x: viewportSizeRef.current.width / 2,
+      y: viewportSizeRef.current.height / 2,
+    };
+  }
+
+  function handleZoomIn() {
+    armCanvasWheelLock();
+    const center = getCanvasViewportCenter();
+    updateScaleFromViewportPoint(viewRef.current.scale * CANVAS_ZOOM_STEP, center.x, center.y);
+  }
+
+  function handleZoomOut() {
+    armCanvasWheelLock();
+    const center = getCanvasViewportCenter();
+    updateScaleFromViewportPoint(viewRef.current.scale / CANVAS_ZOOM_STEP, center.x, center.y);
+  }
+
+  function handleFitCanvasView() {
+    const currentItems = itemsRef.current;
+    const viewport = viewportSizeRef.current;
+
+    if (!currentItems.length) {
+      setView((previous) => ({
+        ...previous,
+        x: DEFAULT_VIEW.x,
+        y: DEFAULT_VIEW.y,
+        scale: DEFAULT_VIEW.scale,
+      }));
+      return;
+    }
+
+    let minX = currentItems[0].x;
+    let minY = currentItems[0].y;
+    let maxX = currentItems[0].x + currentItems[0].width;
+    let maxY = currentItems[0].y + currentItems[0].height;
+
+    for (const item of currentItems) {
+      minX = Math.min(minX, item.x);
+      minY = Math.min(minY, item.y);
+      maxX = Math.max(maxX, item.x + item.width);
+      maxY = Math.max(maxY, item.y + item.height);
+    }
+
+    const contentWidth = Math.max(160, maxX - minX);
+    const contentHeight = Math.max(120, maxY - minY);
+    const availableWidth = Math.max(240, viewport.width - FIT_VIEW_PADDING * 2);
+    const availableHeight = Math.max(200, viewport.height - FIT_VIEW_PADDING * 2);
+    const nextScale = clamp(
+      Math.min(availableWidth / contentWidth, availableHeight / contentHeight),
+      MIN_SCALE,
+      MAX_SCALE
+    );
+    const contentCenterX = minX + contentWidth / 2;
+    const contentCenterY = minY + contentHeight / 2;
+
+    setView((previous) => ({
+      ...previous,
+      scale: nextScale,
+      x: viewport.width / 2 - contentCenterX * nextScale,
+      y: viewport.height / 2 - contentCenterY * nextScale,
+    }));
+  }
+
   function updateCurrentSessionMessages(
     sessionId: string,
     updater: (previousMessages: ChatMessage[]) => ChatMessage[],
@@ -1335,19 +1419,11 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
     const rect = canvas.getBoundingClientRect();
     const originX = event.clientX - rect.left;
     const originY = event.clientY - rect.top;
-
-    setView((previous) => {
-      const nextScale = clamp(previous.scale * (event.deltaY < 0 ? 1.08 : 0.92), MIN_SCALE, MAX_SCALE);
-      const worldX = (originX - previous.x) / previous.scale;
-      const worldY = (originY - previous.y) / previous.scale;
-
-      return {
-        ...previous,
-        scale: nextScale,
-        x: originX - worldX * nextScale,
-        y: originY - worldY * nextScale,
-      };
-    });
+    updateScaleFromViewportPoint(
+      viewRef.current.scale * (event.deltaY < 0 ? 1.08 : 0.92),
+      originX,
+      originY
+    );
   }
 
   function handleItemDoubleClick(item: CanvasItem) {
@@ -1908,6 +1984,41 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               </div>
             </div>
 
+            {!cropState ? (
+              <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2">
+                <div className="inline-flex items-center rounded-full border border-white/[0.08] bg-[#232632]/95 px-2 py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+                  <button
+                    type="button"
+                    onClick={handleFitCanvasView}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
+                    title="适应画布"
+                  >
+                    <Scan className="h-4.5 w-4.5" />
+                  </button>
+                  <div className="mx-2 h-6 w-px bg-white/[0.08]" />
+                  <button
+                    type="button"
+                    onClick={handleZoomOut}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
+                    title="缩小"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <div className="min-w-[78px] text-center text-[15px] font-semibold tracking-[0.02em] text-white">
+                    {Math.round(view.scale * 100)} %
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleZoomIn}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-100 transition hover:bg-white/[0.08]"
+                    title="放大"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {selectedImageItem && selectedImageToolbarPosition ? (
               <div
                 className="absolute z-30"
@@ -2312,7 +2423,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
               </div>
             ) : null}
 
-            <div className="mt-3 flex items-end gap-2">
+            <div className="mt-3 relative">
               <textarea
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
@@ -2324,7 +2435,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 }}
                 rows={4}
                 placeholder="告诉 AI 你想继续扩图、改风格、补场景还是生成一组新画面"
-                className="min-h-[104px] flex-1 resize-none rounded-2xl border border-white/[0.08] bg-[#0f131d] px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500"
+                className="min-h-[112px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#0f131d] px-3 py-3 pr-[92px] text-sm leading-6 text-white outline-none placeholder:text-slate-500"
               />
 
               <button
@@ -2333,7 +2444,7 @@ export default function AiVisionWorkspace({ onBack }: { onBack: () => void }) {
                 onClick={() => {
                   void handleSendMessage();
                 }}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[#7c6df7] px-4 text-sm font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
+                className="absolute bottom-3 right-3 inline-flex h-10 items-center gap-2 rounded-2xl bg-[#7c6df7] px-4 text-sm font-medium text-white transition hover:bg-[#8a7cfa] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {isChatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 发送
