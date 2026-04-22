@@ -1,6 +1,11 @@
 import type { PenDocument } from '@zseven-w/pen-types';
 
-export type ItemType = 'image' | 'text' | 'loading';
+export type ItemType = 'image' | 'video' | 'text' | 'drawing' | 'shape' | 'loading';
+
+export interface CanvasPoint {
+  x: number;
+  y: number;
+}
 
 export interface CanvasItem {
   id: string;
@@ -11,6 +16,12 @@ export interface CanvasItem {
   height: number;
   content: string; // text or base64 data URL
   prompt?: string;
+  mimeType?: string;
+  sourceKind?: 'uploaded' | 'generated';
+  points?: CanvasPoint[];
+  strokeColor?: string;
+  strokeWidth?: number;
+  shapeType?: 'rect';
 }
 
 export interface ChatMessage {

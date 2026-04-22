@@ -23,6 +23,18 @@ export type ChatWithAIOptions = {
   temperature?: number;
 };
 
+export type GenerateVideoTaskResult = {
+  taskId: string;
+  status: string;
+};
+
+export type VideoTaskStatusResult = {
+  taskId: string;
+  status: string;
+  progress: number;
+  videoUrl?: string;
+};
+
 const DOUBAO_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const DOUBAO_API_KEY = () => (import.meta.env.VITE_DOUBAO_API_KEY || '').trim();
 const DEFAULT_CHAT_MODEL = (
@@ -31,6 +43,7 @@ const DEFAULT_CHAT_MODEL = (
 const DEFAULT_IMAGE_MODEL = (
   import.meta.env.VITE_DOUBAO_IMAGE_MODEL || 'doubao-seedream-5-0-260128'
 ).trim();
+const DEFAULT_VIDEO_MODEL = () => (import.meta.env.VITE_DOUBAO_VIDEO_MODEL || '').trim();
 
 const DEFAULT_SYSTEM_PROMPT = `
 你是“电商AI”设计助手，请始终使用中文回答。
@@ -81,12 +94,24 @@ export function isDoubaoConfigured() {
   return Boolean(DOUBAO_API_KEY());
 }
 
+export function isDoubaoVideoConfigured() {
+  return Boolean(DOUBAO_API_KEY() && DEFAULT_VIDEO_MODEL());
+}
+
 function requireApiKey() {
   const key = DOUBAO_API_KEY();
   if (!key) {
     throw new Error('未配置豆包 API Key，请在 .env.local 中设置 VITE_DOUBAO_API_KEY。');
   }
   return key;
+}
+
+function requireVideoModel() {
+  const model = DEFAULT_VIDEO_MODEL();
+  if (!model) {
+    throw new Error('未配置视频生成模型，请在 .env.local 中设置 VITE_DOUBAO_VIDEO_MODEL。');
+  }
+  return model;
 }
 
 function normalizeRole(role: string): 'system' | 'user' | 'assistant' {
@@ -132,6 +157,21 @@ async function postJSON(path: string, body: Record<string, unknown>) {
       Authorization: `Bearer ${requireApiKey()}`,
     },
     body: JSON.stringify(body),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, response.status));
+  }
+  return payload;
+}
+
+async function getJSON(path: string) {
+  const response = await fetch(`${DOUBAO_API_BASE_URL}${path}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${requireApiKey()}`,
+    },
   });
 
   const payload = await response.json().catch(() => null);
@@ -331,6 +371,79 @@ function isInvalidFieldError(message: string) {
   );
 }
 
+function isRetryableVideoShapeError(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    isInvalidFieldError(message) ||
+    normalized.includes('404') ||
+    normalized.includes('405') ||
+    normalized.includes('not found') ||
+    normalized.includes('unsupported') ||
+    normalized.includes('method not allowed')
+  );
+}
+
+function extractTaskId(payload: any) {
+  return (
+    payload?.id ||
+    payload?.task_id ||
+    payload?.taskId ||
+    payload?.data?.id ||
+    payload?.data?.task_id ||
+    payload?.data?.taskId ||
+    payload?.metadata?.task_id ||
+    payload?.metadata?.taskId ||
+    ''
+  );
+}
+
+function extractVideoStatus(payload: any) {
+  const rawStatus =
+    payload?.status ||
+    payload?.state ||
+    payload?.task_status ||
+    payload?.taskStatus ||
+    payload?.data?.status ||
+    payload?.data?.state ||
+    payload?.data?.task_status ||
+    payload?.metadata?.task_status ||
+    payload?.metadata?.taskStatus ||
+    'PENDING';
+  return String(rawStatus);
+}
+
+function extractVideoProgress(payload: any) {
+  const candidates = [
+    payload?.progress,
+    payload?.percent,
+    payload?.percentage,
+    payload?.data?.progress,
+    payload?.data?.percent,
+    payload?.data?.percentage,
+  ];
+  const value = candidates.find((candidate) => typeof candidate === 'number');
+  return typeof value === 'number' ? value : 0;
+}
+
+function extractVideoUrl(payload: any) {
+  return (
+    payload?.video_url ||
+    payload?.videoUrl ||
+    payload?.url ||
+    payload?.data?.video_url ||
+    payload?.data?.videoUrl ||
+    payload?.data?.url ||
+    payload?.output?.video_url ||
+    payload?.output?.url ||
+    payload?.result?.video_url ||
+    payload?.result?.url ||
+    payload?.data?.video?.url ||
+    payload?.data?.videos?.[0]?.url ||
+    payload?.videos?.[0]?.url ||
+    undefined
+  );
+}
+
 export async function generateImageAI(
   prompt: string,
   model: string = DEFAULT_IMAGE_MODEL,
@@ -394,4 +507,91 @@ export async function generateImageAI(
   const message =
     payload?.error?.message || payload?.message || payload?.msg || '生图成功但未返回可用图片。';
   throw new Error(String(message));
+}
+
+export async function generateVideoAI(
+  prompt: string,
+  referenceImages: string[] = []
+): Promise<GenerateVideoTaskResult> {
+  const cleanPrompt = prompt.trim();
+  if (!cleanPrompt) {
+    throw new Error('视频生成提示词不能为空。');
+  }
+
+  const refs = referenceImages.filter(Boolean);
+  const basePayload: Record<string, unknown> = {
+    model: requireVideoModel(),
+    prompt: cleanPrompt,
+  };
+
+  const bodyCandidates: Record<string, unknown>[] = refs.length
+    ? [
+        { ...basePayload, image: refs[0] },
+        { ...basePayload, image: refs },
+        { ...basePayload, images: refs },
+        { ...basePayload, reference_images: refs },
+        { ...basePayload, image_urls: refs },
+      ]
+    : [basePayload];
+
+  const pathCandidates = ['/videos/generations', '/videos'];
+  let lastError: Error | null = null;
+
+  for (const path of pathCandidates) {
+    for (const body of bodyCandidates) {
+      try {
+        const payload = await postJSON(path, body);
+        const taskId = String(extractTaskId(payload) || '').trim();
+        if (!taskId) {
+          throw new Error('视频生成任务已创建，但未返回任务 ID。');
+        }
+        return {
+          taskId,
+          status: extractVideoStatus(payload),
+        };
+      } catch (error) {
+        if (!(error instanceof Error)) {
+          throw error;
+        }
+        lastError = error;
+        if (!isRetryableVideoShapeError(error.message)) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('视频生成任务创建失败。');
+}
+
+export async function pollVideoTask(taskId: string): Promise<VideoTaskStatusResult> {
+  const cleanTaskId = taskId.trim();
+  if (!cleanTaskId) {
+    throw new Error('视频任务 ID 不能为空。');
+  }
+
+  const pathCandidates = [`/videos/generations/${cleanTaskId}`, `/videos/${cleanTaskId}`];
+  let lastError: Error | null = null;
+
+  for (const path of pathCandidates) {
+    try {
+      const payload = await getJSON(path);
+      return {
+        taskId: String(extractTaskId(payload) || cleanTaskId),
+        status: extractVideoStatus(payload),
+        progress: extractVideoProgress(payload),
+        videoUrl: extractVideoUrl(payload),
+      };
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      lastError = error;
+      if (!isRetryableVideoShapeError(error.message)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('视频任务状态查询失败。');
 }
