@@ -69,6 +69,7 @@ export type AppRoute =
   | 'product'
   | 'operations'
   | 'design'
+  | 'ai_visual'
   | 'openpencil_lab'
   | 'openlovart'
   | 'canvas'

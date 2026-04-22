@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import AiVisionWorkspace from './components/AiVisionWorkspace';
 import CanvasContainer from './components/CanvasContainer';
 import ChatPanel from './components/ChatPanel';
 import Dashboard from './components/Dashboard';
-import OpenLovartWorkspace from './components/OpenLovartWorkspace';
 import OpenPencilLabWorkspace from './components/OpenPencilLabWorkspace';
 import { chatWithAI, generateImageAI, isDoubaoConfigured } from './services/ai';
 import { saveProject } from './store';
@@ -282,8 +282,8 @@ export default function App() {
     return <OpenPencilLabWorkspace onBack={() => setCurrentRoute('design')} />;
   }
 
-  if (currentRoute === 'openlovart') {
-    return <OpenLovartWorkspace onBack={() => setCurrentRoute('design')} />;
+  if (currentRoute === 'ai_visual') {
+    return <AiVisionWorkspace onBack={() => setCurrentRoute('design')} />;
   }
 
   if (currentRoute !== 'canvas') {

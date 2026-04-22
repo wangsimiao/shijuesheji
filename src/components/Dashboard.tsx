@@ -16,7 +16,7 @@ const MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
   { route: 'operations', label: 'AI运营' },
   { route: 'design', label: 'AI设计' },
   { route: 'openpencil_lab', label: 'OpenPencil实验室' },
-  { route: 'openlovart', label: 'OpenLovart' },
+  { route: 'ai_visual', label: 'AI视觉' },
 ];
 
 function Placeholder({ title, description }: { title: string; description: string }) {

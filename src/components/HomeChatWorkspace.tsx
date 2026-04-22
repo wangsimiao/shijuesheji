@@ -97,7 +97,7 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
     if (scene === 'operations') {
       return '已进入运营场景：可继续选择产品定位、主图策划、详情策划、买家秀策划、标题策划。';
     }
-    onNavigate?.('design');
+    onNavigate?.('ai_visual');
     return '正在跳转到 AI 设计创建新项目。';
   };
 
