@@ -122,6 +122,7 @@ const RESIZE_HANDLES: Array<{ handle: ResizeHandle; style: React.CSSProperties }
   { handle: 'sw', style: { left: -6, bottom: -6 } },
   { handle: 'w', style: { left: -6, top: '50%', transform: 'translateY(-50%)' } },
 ];
+const CORNER_RESIZE_HANDLES = RESIZE_HANDLES.filter(({ handle }) => handle.length === 2);
 
 const CROP_ASPECT_OPTIONS: CropAspect[] = ['freeform', '1:1', '4:3', '16:9'];
 
@@ -369,6 +370,10 @@ export default function CanvasStage({
             const isSelected = selectedItemId === item.id;
             const isTextEditing = editingTextItemId === item.id;
             const imageStyle = item.type === 'image' ? getRenderedImageStyle(item.crop) : null;
+            const resizeHandles =
+              item.type === 'image' || item.type === 'video'
+                ? CORNER_RESIZE_HANDLES
+                : RESIZE_HANDLES;
 
             return (
               <div
@@ -516,7 +521,7 @@ export default function CanvasStage({
                       />
 
                       {!cropState && !isTextEditing
-                        ? RESIZE_HANDLES.map(({ handle, style }) => (
+                        ? resizeHandles.map(({ handle, style }) => (
                             <button
                               key={handle}
                               type="button"

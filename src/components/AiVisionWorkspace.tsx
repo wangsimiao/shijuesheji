@@ -163,7 +163,11 @@ function getItemResizeMinimum(item: CanvasItem) {
   return { width: 20, height: 20 };
 }
 
-function resizeItem(item: CanvasItem, handle: ResizeHandle, deltaX: number, deltaY: number) {
+function isAspectLockedItem(item: CanvasItem) {
+  return item.type === 'image' || item.type === 'video';
+}
+
+function resizeItemFreeform(item: CanvasItem, handle: ResizeHandle, deltaX: number, deltaY: number) {
   const min = getItemResizeMinimum(item);
   let nextX = item.x;
   let nextY = item.y;
@@ -194,6 +198,45 @@ function resizeItem(item: CanvasItem, handle: ResizeHandle, deltaX: number, delt
     width: nextWidth,
     height: nextHeight,
   };
+}
+
+function resizeItemWithLockedAspect(
+  item: CanvasItem,
+  handle: ResizeHandle,
+  deltaX: number,
+  deltaY: number
+) {
+  if (!handle.includes('n') && !handle.includes('s')) return item;
+  if (!handle.includes('e') && !handle.includes('w')) return item;
+
+  const min = getItemResizeMinimum(item);
+  const safeWidth = Math.max(item.width, 1);
+  const safeHeight = Math.max(item.height, 1);
+  const scaleFromX = (safeWidth + (handle.includes('w') ? -deltaX : deltaX)) / safeWidth;
+  const scaleFromY = (safeHeight + (handle.includes('n') ? -deltaY : deltaY)) / safeHeight;
+  const dominantScale =
+    Math.abs(scaleFromX - 1) >= Math.abs(scaleFromY - 1) ? scaleFromX : scaleFromY;
+  const minScale = Math.max(min.width / safeWidth, min.height / safeHeight);
+  const nextScale = Math.max(minScale, dominantScale);
+  const nextWidth = safeWidth * nextScale;
+  const nextHeight = safeHeight * nextScale;
+  const anchorX = handle.includes('w') ? item.x + item.width : item.x;
+  const anchorY = handle.includes('n') ? item.y + item.height : item.y;
+
+  return {
+    ...item,
+    x: handle.includes('w') ? anchorX - nextWidth : anchorX,
+    y: handle.includes('n') ? anchorY - nextHeight : anchorY,
+    width: nextWidth,
+    height: nextHeight,
+  };
+}
+
+function resizeItem(item: CanvasItem, handle: ResizeHandle, deltaX: number, deltaY: number) {
+  if (isAspectLockedItem(item)) {
+    return resizeItemWithLockedAspect(item, handle, deltaX, deltaY);
+  }
+  return resizeItemFreeform(item, handle, deltaX, deltaY);
 }
 
 export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspaceProps) {

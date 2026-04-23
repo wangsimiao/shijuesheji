@@ -268,29 +268,27 @@ export default function ChatSidebar({
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-[#191c23] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
               <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}>
                 {currentSession?.messages.length ? (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     {currentSession.messages.map((message) => {
                       const isUser = message.role === 'user';
                       return (
                         <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                          <div
-                            className={`overflow-hidden ${
-                              isUser
-                                ? 'max-w-[84%] rounded-[20px] rounded-br-[10px] bg-[#2a2f39] px-4 py-3 text-[13px] leading-6 text-slate-50'
-                                : 'w-full rounded-[24px] bg-[#20242d] px-4 py-4 text-[13px] leading-7 text-slate-100'
-                            }`}
-                          >
-                            <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                            {message.imageUrl ? (
-                              <div className="mt-3 rounded-[18px] bg-[#171b22] p-2.5">
+                          {isUser ? (
+                            <div className="max-w-[84%] overflow-hidden rounded-[20px] rounded-br-[10px] bg-[#2a2f39] px-4 py-3 text-[13px] leading-6 text-slate-50">
+                              <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                            </div>
+                          ) : (
+                            <div className="w-full text-[13px] leading-7 text-slate-100">
+                              <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                              {message.imageUrl ? (
                                 <img
                                   src={message.imageUrl}
                                   alt="assistant result"
-                                  className="w-full rounded-[16px] object-cover"
+                                  className="mt-3 w-full rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
                                 />
-                              </div>
-                            ) : null}
-                          </div>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -308,7 +306,7 @@ export default function ChatSidebar({
 
                 {isChatLoading ? (
                   <div className="mt-3.5 flex justify-start">
-                    <div className="inline-flex items-center gap-2 rounded-[18px] bg-[#232833] px-4 py-3 text-[13px] text-slate-100">
+                    <div className="inline-flex items-center gap-2 text-[13px] text-slate-400">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       正在思考与整理画布结果...
                     </div>
@@ -428,9 +426,6 @@ export default function ChatSidebar({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                      <div className="text-[10px] text-slate-500">
-                        {chatInputImages.length}/{CHAT_IMAGE_LIMIT}
-                      </div>
                       <button
                         type="button"
                         disabled={!canSend}
