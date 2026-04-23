@@ -409,6 +409,11 @@ export default function ChatSidebar({
                           ) : (
                             <div className="w-full text-[13px] leading-7 text-slate-100">
                               <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                              {message.isImageLoading ? (
+                                <div className="mt-3 block w-full max-w-[50%] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#222833]">
+                                  <div className="aspect-square w-full animate-pulse bg-[linear-gradient(110deg,#2a3040_8%,#3a4254_18%,#2a3040_33%)] [background-size:200%_100%]" />
+                                </div>
+                              ) : null}
                               {message.imageUrl ? (
                                 <img
                                   src={message.imageUrl}
@@ -435,8 +440,14 @@ export default function ChatSidebar({
 
                 {isChatLoading ? (
                   <div className="mt-3.5 flex justify-start">
-                    <div className="inline-flex items-center gap-2 text-[13px] text-slate-400">
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                    <div className="w-full text-[0px] leading-none">
+                      <div className="block w-full max-w-[50%] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#222833]">
+                        <div className="aspect-square w-full animate-pulse bg-[linear-gradient(110deg,#2a3040_8%,#3a4254_18%,#2a3040_33%)] [background-size:200%_100%]" />
+                      </div>
+                      <div className="mt-2 inline-flex items-center gap-2 text-[13px] text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        正在生成图片...
+                      </div>
                       正在思考与整理画布结果...
                     </div>
                   </div>
@@ -524,7 +535,7 @@ export default function ChatSidebar({
                             : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
                         }`}
                       >
-                        品牌规范 · {activeBrandName}
+                        {activeBrandName}规范
                         <ChevronDown
                           className={`h-3 w-3 transition ${isBrandSpecMenuOpen ? 'rotate-180' : ''}`}
                         />

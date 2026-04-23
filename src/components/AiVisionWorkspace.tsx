@@ -1392,8 +1392,8 @@ export default function AiVisionWorkspace({
   }
 
   function createLoadingItem(prompt: string, preferred?: { x: number; y: number }) {
-    const width = 260;
-    const height = 168;
+    const width = 520;
+    const height = 520;
     const position = createAvoidOverlapPosition(
       itemsRef.current,
       viewRef.current,

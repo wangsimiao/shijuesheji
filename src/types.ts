@@ -40,6 +40,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   imageUrl?: string;
+  isImageLoading?: boolean;
   attachedImages?: string[];
 }
 
