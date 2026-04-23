@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Image as ImageIcon, MoreHorizontal, Plus, Trash2, Video } from 'lucide-react';
 import HomeChatWorkspace from './HomeChatWorkspace';
 import { AppRoute, Project } from '../types';
 import { createNewProject, deleteProject, getProjects } from '../store';
@@ -17,6 +17,10 @@ const MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
   { route: 'design', label: 'AI设计' },
 ];
 
+type ProjectPreviewMedia =
+  | { type: 'image'; src: string }
+  | { type: 'video'; src: string };
+
 function Placeholder({ title, description }: { title: string; description: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-8">
@@ -26,11 +30,112 @@ function Placeholder({ title, description }: { title: string; description: strin
   );
 }
 
+function formatProjectTimestamp(timestamp: number) {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+function getProjectPreviewMedia(project: Project): ProjectPreviewMedia[] {
+  const fromCanvas = project.items
+    .filter((item) => item.type === 'image' || item.type === 'video')
+    .map<ProjectPreviewMedia>((item) =>
+      item.type === 'video'
+        ? { type: 'video', src: item.content }
+        : { type: 'image', src: item.content }
+    );
+
+  if (fromCanvas.length > 0) {
+    return fromCanvas.slice(0, 4);
+  }
+
+  const seen = new Set<string>();
+  const fromChat: ProjectPreviewMedia[] = [];
+  const orderedSessions = [...project.sessions].sort(
+    (left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0)
+  );
+
+  for (const session of orderedSessions) {
+    for (const message of [...session.messages].reverse()) {
+      if (message.imageUrl && !seen.has(message.imageUrl)) {
+        seen.add(message.imageUrl);
+        fromChat.push({ type: 'image', src: message.imageUrl });
+      }
+
+      for (const attachedImage of message.attachedImages || []) {
+        if (seen.has(attachedImage)) continue;
+        seen.add(attachedImage);
+        fromChat.push({ type: 'image', src: attachedImage });
+      }
+
+      if (fromChat.length >= 4) {
+        return fromChat.slice(0, 4);
+      }
+    }
+  }
+
+  return fromChat.slice(0, 4);
+}
+
+function ProjectPreview({ project }: { project: Project }) {
+  const media = getProjectPreviewMedia(project);
+
+  if (media.length === 0) {
+    return (
+      <div className="flex h-full w-full items-center justify-center rounded-[18px] bg-[#101116] text-slate-500">
+        <ImageIcon className="h-10 w-10 opacity-70" />
+      </div>
+    );
+  }
+
+  if (media.length === 1) {
+    const item = media[0];
+    return item.type === 'image' ? (
+      <img src={item.src} alt={project.name} className="h-full w-full object-cover" />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-[#111319] text-slate-300">
+        <Video className="h-10 w-10" />
+      </div>
+    );
+  }
+
+  const isThreeUp = media.length === 3;
+
+  return (
+    <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-[2px] bg-white/[0.08]">
+      {media.slice(0, 4).map((item, index) => (
+        <div
+          key={`${project.id}-preview-${index}`}
+          className={`${isThreeUp && index === 0 ? 'row-span-2' : ''} overflow-hidden bg-[#101116]`}
+        >
+          {item.type === 'image' ? (
+            <img
+              src={item.src}
+              alt={`${project.name} 预览 ${index + 1}`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-slate-300">
+              <Video className="h-8 w-8" />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: DashboardProps) {
-  const [newProjectName, setNewProjectName] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [isProjectsLoading, setIsProjectsLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [activeProjectMenuId, setActiveProjectMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentRoute !== 'design') return;
@@ -58,10 +163,22 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     };
   }, [currentRoute, refreshToken]);
 
+  useEffect(() => {
+    if (!activeProjectMenuId) return;
+
+    const handleWindowPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-project-menu="true"]')) {
+        return;
+      }
+      setActiveProjectMenuId(null);
+    };
+
+    window.addEventListener('pointerdown', handleWindowPointerDown);
+    return () => window.removeEventListener('pointerdown', handleWindowPointerDown);
+  }, [activeProjectMenuId]);
+
   const handleCreateProject = async () => {
-    const project = await createNewProject(newProjectName.trim() || 'AI 设计项目');
-    setNewProjectName('');
-    setRefreshToken((value) => value + 1);
+    const project = await createNewProject('AI 设计项目');
     onOpenProject(project);
   };
 
@@ -72,67 +189,101 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
     if (currentRoute === 'design') {
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="mx-auto max-w-6xl">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold text-white">AI 设计项目</h2>
-                <p className="mt-1 text-sm text-slate-400">创建项目后会直接进入 AI视觉 工作区继续编辑。</p>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  value={newProjectName}
-                  onChange={(event) => setNewProjectName(event.target.value)}
-                  placeholder="输入项目名称"
-                  className="w-52 rounded-lg border border-white/20 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
-                />
+        <div className="h-full overflow-y-auto bg-[#0d0f15] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] [background-size:22px_22px]">
+          <div className="mx-auto max-w-[1600px]">
+            {isProjectsLoading ? (
+              <Placeholder title="正在加载项目" description="正在从本地项目库读取 AI 设计项目..." />
+            ) : (
+              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
                 <button
                   type="button"
                   onClick={() => {
                     void handleCreateProject();
                   }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-sm text-white hover:bg-sky-400"
+                  className="group flex aspect-[1.03] flex-col rounded-[24px] border border-white/[0.06] bg-[#181a21] p-5 text-left shadow-[0_18px_44px_rgba(0,0,0,0.26)] transition hover:border-white/[0.12] hover:bg-[#1c1f27]"
                 >
-                  <Plus className="h-4 w-4" />
-                  新建项目
+                  <div className="flex flex-1 items-center justify-center rounded-[18px] bg-[#111216] text-slate-400 transition group-hover:text-slate-200">
+                    <div className="flex flex-col items-center gap-6">
+                      <Plus className="h-14 w-14 stroke-[1.5]" />
+                      <div className="text-[18px] font-semibold text-slate-200">新的画板</div>
+                    </div>
+                  </div>
                 </button>
-              </div>
-            </div>
 
-            {isProjectsLoading ? (
-              <Placeholder title="正在加载项目" description="正在从本地项目库读取设计项目..." />
-            ) : projects.length === 0 ? (
-              <Placeholder title="暂无项目" description="先创建一个项目，就可以进入 AI视觉 工作区继续创作。" />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {projects.map((project) => (
-                  <article key={project.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <article
+                    key={project.id}
+                    className="group relative flex aspect-[1.03] flex-col overflow-hidden rounded-[24px] border border-white/[0.06] bg-[#181a21] p-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)] transition hover:border-white/[0.12] hover:bg-[#1c1f27]"
+                  >
                     <button
                       type="button"
                       onClick={() => onOpenProject(project)}
-                      className="w-full text-left"
+                      className="flex min-h-0 flex-1 flex-col text-left"
                     >
-                      <h3 className="truncate text-base font-semibold text-white">{project.name}</h3>
-                      <p className="mt-2 text-xs text-slate-400">
-                        更新时间：{new Date(project.updatedAt).toLocaleString('zh-CN')}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        画布元素：{project.items.length} / 会话：{project.sessions.length}
-                      </p>
+                      <div className="aspect-[1.48] overflow-hidden rounded-[18px] border border-white/[0.05] bg-[#101116]">
+                        <ProjectPreview project={project} />
+                      </div>
+
+                      <div className="min-h-0 flex-1 px-1 pt-4">
+                        <h3 className="line-clamp-2 text-[15px] font-semibold leading-7 text-white">
+                          {project.name || '未命名画板'}
+                        </h3>
+                      </div>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!window.confirm('确认删除该项目吗？')) return;
-                        void deleteProject(project.id).then(() => {
-                          setRefreshToken((value) => value + 1);
-                        });
-                      }}
-                      className="mt-3 inline-flex items-center gap-1 text-xs text-rose-300 hover:text-rose-200"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      删除项目
-                    </button>
+
+                    <div className="mt-3 flex items-center justify-between gap-3 px-1">
+                      <div className="truncate text-[12px] tracking-[0.02em] text-slate-400">
+                        {formatProjectTimestamp(project.updatedAt)}
+                      </div>
+
+                      <div data-project-menu="true" className="relative shrink-0">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setActiveProjectMenuId((current) =>
+                              current === project.id ? null : project.id
+                            );
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                          aria-label="项目菜单"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+
+                        {activeProjectMenuId === project.id ? (
+                          <div className="absolute bottom-full right-0 z-20 mb-2 min-w-[138px] rounded-[16px] border border-white/[0.08] bg-[#161922] p-1.5 shadow-[0_18px_40px_rgba(0,0,0,0.42)]">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveProjectMenuId(null);
+                                onOpenProject(project);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-slate-200 transition hover:bg-white/[0.06]"
+                            >
+                              <ImageIcon className="h-4 w-4" />
+                              打开项目
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveProjectMenuId(null);
+                                if (!window.confirm('确认删除这个项目吗？')) return;
+                                void deleteProject(project.id).then(() => {
+                                  setRefreshToken((value) => value + 1);
+                                });
+                              }}
+                              className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-rose-200 transition hover:bg-rose-500/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              删除项目
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -147,7 +298,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
         <div className="p-6">
           <Placeholder
             title="AI产品"
-            description="当前先保留稳定入口，后续可以继续在这条线上补产品分析、选品和商品库能力。"
+            description="当前先保留稳定入口，后续可以继续在这条线里补产品分析、选品和商品库能力。"
           />
         </div>
       );
@@ -166,10 +317,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
     return (
       <div className="p-6">
-        <Placeholder
-          title="稳定模式"
-          description="该页面当前使用稳定占位内容，避免编译与启动异常。"
-        />
+        <Placeholder title="稳定模式" description="该页面当前使用稳定占位内容，避免编译与启动异常。" />
       </div>
     );
   };
