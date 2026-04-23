@@ -145,21 +145,27 @@ function ToolbarAction({
   onClick,
   icon: Icon,
   disabled,
+  iconOnly = false,
 }: {
   label: string;
   onClick: () => void;
   icon: React.ComponentType<{ className?: string }>;
   disabled?: boolean;
+  iconOnly?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-10 items-center gap-1.5 rounded-[12px] px-2.5 text-[12px] font-medium text-slate-100 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40"
+      title={label}
+      aria-label={label}
+      className={`inline-flex h-10 items-center rounded-[12px] text-[12px] font-medium text-slate-100 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40 ${
+        iconOnly ? 'w-10 justify-center' : 'gap-1.5 px-2.5'
+      }`}
     >
       <Icon className="h-4 w-4" />
-      <span>{label}</span>
+      {!iconOnly ? <span>{label}</span> : null}
     </button>
   );
 }
@@ -692,7 +698,7 @@ export default function CanvasStage({
           </div>
         ) : null}
 
-        {!cropState && selectedImageItem && selectedItemToolbarPosition ? (
+        {!cropState && false && selectedImageItem && selectedItemToolbarPosition ? (
           <div
             className="absolute z-30"
             style={{
@@ -706,6 +712,7 @@ export default function CanvasStage({
                 label="重绘"
                 icon={RefreshCcw}
                 disabled={!isModelConfigured}
+                iconOnly
                 onClick={() => {
                   if (!isModelConfigured) {
                     onMissingRegenerateConfig();
@@ -721,6 +728,50 @@ export default function CanvasStage({
               <ToolbarAction label="下载" icon={Download} onClick={() => void onDownloadSelectedImage()} />
               <ToolbarAction label="对话" icon={MessageSquarePlus} onClick={onAddSelectedImageToChat} />
               <ToolbarAction label="删除" icon={Trash2} onClick={onDeleteSelectedItem} />
+            </FloatingToolbar>
+          </div>
+        ) : null}
+
+        {!cropState && selectedImageItem && selectedItemToolbarPosition ? (
+          <div
+            className="absolute z-30"
+            style={{
+              left: selectedItemToolbarPosition.left,
+              top: selectedItemToolbarPosition.top,
+              transform: 'translate(-50%, -100%)',
+            }}
+          >
+            <FloatingToolbar>
+              <ToolbarAction
+                label="重绘"
+                icon={RefreshCcw}
+                disabled={!isModelConfigured}
+                iconOnly
+                onClick={() => {
+                  if (!isModelConfigured) {
+                    onMissingRegenerateConfig();
+                    return;
+                  }
+                  onOpenRegeneratePopover();
+                }}
+              />
+              <ToolbarAction label="替换" icon={ImageUp} iconOnly onClick={onOpenReplaceImage} />
+              <ToolbarAction label="裁剪" icon={Crop} iconOnly onClick={onStartCrop} />
+              <Divider />
+              <ToolbarAction label="复制" icon={Copy} iconOnly onClick={onCopySelectedItem} />
+              <ToolbarAction
+                label="下载"
+                icon={Download}
+                iconOnly
+                onClick={() => void onDownloadSelectedImage()}
+              />
+              <ToolbarAction
+                label="对话"
+                icon={MessageSquarePlus}
+                iconOnly
+                onClick={onAddSelectedImageToChat}
+              />
+              <ToolbarAction label="删除" icon={Trash2} iconOnly onClick={onDeleteSelectedItem} />
             </FloatingToolbar>
           </div>
         ) : null}
