@@ -155,6 +155,9 @@ export type SceneTabOption = {
   label: string;
 };
 
+export const DOUBAO_5_IMAGE_MODEL = 'doubao-seedream-5-0-260128';
+export const OPENROUTER_GPT_IMAGE_MODEL = 'openai/gpt-5.4-image-2';
+
 export const LEGACY_AI_VISION_STORAGE_KEY = 'ai_visual_workspace_v1';
 export const DEFAULT_BOARD_NAME = 'AI 视觉';
 export const WORKSPACE_HEADER_HEIGHT = 62;
@@ -198,6 +201,18 @@ export const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
     label: '豆包 5.0',
   },
 ];
+IMAGE_MODEL_OPTIONS.splice(
+  0,
+  IMAGE_MODEL_OPTIONS.length,
+  {
+    value: OPENROUTER_GPT_IMAGE_MODEL,
+    label: 'GPT 5.4 Image 2',
+  },
+  {
+    value: DOUBAO_5_IMAGE_MODEL,
+    label: '豆包 5.0',
+  }
+);
 export const DEFAULT_IMAGE_MODEL_OPTION = IMAGE_MODEL_OPTIONS[0];
 export const SCENE_TAB_OPTIONS: SceneTabOption[] = [
   { value: 'general', label: '通用' },

@@ -98,14 +98,20 @@ export type AppRoute =
   | 'profile'
   | 'admin';
 
-export interface ModelSettings {
-  provider: 'doubao';
-  displayName: string;
+export type ModelProviderId = 'doubao' | 'openrouter';
+
+export interface ModelProviderSettings {
   imageModel: string;
   apiBaseUrl: string;
   apiKey: string;
-  promptPrefix: string;
-  promptSuffix: string;
+}
+
+export interface ModelSettings {
+  providers: {
+    doubao: ModelProviderSettings;
+    openrouter: ModelProviderSettings;
+  };
+  defaultAiVisionImageModel: string;
   retryCount: number;
   timeoutMs: number;
   updatedAt: number;

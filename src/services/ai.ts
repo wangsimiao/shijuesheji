@@ -1,5 +1,11 @@
 /// <reference types="vite/client" />
 
+import { getModelSettings } from '../store';
+import {
+  DOUBAO_5_IMAGE_MODEL,
+  OPENROUTER_GPT_IMAGE_MODEL,
+} from '../components/ai-vision/workspace-model';
+
 type ChatHistoryMessage = {
   role: string;
   content: string;
@@ -15,6 +21,21 @@ type GenerateImageFunctionCall = {
     prompt: string;
     referenceImages?: string[];
   };
+};
+
+type ImageModelProvider = 'doubao' | 'openrouter';
+
+type ImageProviderConfig = {
+  provider: ImageModelProvider;
+  apiBaseUrl: string;
+  apiKey: string;
+  imageModel: string;
+};
+
+type RequestConfig = {
+  apiBaseUrl: string;
+  apiKey: string;
+  headers?: Record<string, string>;
 };
 
 export type ChatWithAIOptions = {
@@ -35,20 +56,21 @@ export type VideoTaskStatusResult = {
   videoUrl?: string;
 };
 
-const DOUBAO_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-const DOUBAO_API_KEY = () => (import.meta.env.VITE_DOUBAO_API_KEY || '').trim();
+const DOUBAO_ENV_API_BASE_URL = (
+  import.meta.env.VITE_DOUBAO_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3'
+).trim();
+const DOUBAO_ENV_API_KEY = () => (import.meta.env.VITE_DOUBAO_API_KEY || '').trim();
 const DEFAULT_CHAT_MODEL = (
   import.meta.env.VITE_DOUBAO_CHAT_MODEL || 'doubao-seed-1-8-251228'
 ).trim();
-const DEFAULT_IMAGE_MODEL = (
-  import.meta.env.VITE_DOUBAO_IMAGE_MODEL || 'doubao-seedream-5-0-260128'
+const DOUBAO_ENV_IMAGE_MODEL = (
+  import.meta.env.VITE_DOUBAO_IMAGE_MODEL || DOUBAO_5_IMAGE_MODEL
 ).trim();
 const DEFAULT_VIDEO_MODEL = () => (import.meta.env.VITE_DOUBAO_VIDEO_MODEL || '').trim();
+const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
 
 const DEFAULT_SYSTEM_PROMPT = `
-你是“电商AI”设计助手，请始终使用中文回答。
-当用户明确要求“生图/出图/改图/图生图”时，优先触发 generateImage 工具。
-当用户是咨询问题时，给出简明、可执行的建议。
+你是“电商AI”设计助手，请始终使用中文回答。当用户明确要求“生图/出图/改图/图生图”时，优先触发 generateImage 工具。当用户是咨询问题时，给出简明、可执行的建议。
 `.trim();
 
 const IMAGE_INTENT_KEYWORDS = [
@@ -90,20 +112,62 @@ export const generateImageTool = {
   },
 };
 
+function isOpenRouterImageModel(model: string) {
+  return model.trim() === OPENROUTER_GPT_IMAGE_MODEL;
+}
+
+function resolveDoubaoImageConfig(): ImageProviderConfig {
+  const settings = getModelSettings();
+  const provider = settings.providers.doubao;
+  return {
+    provider: 'doubao',
+    apiBaseUrl: (provider.apiBaseUrl || DOUBAO_ENV_API_BASE_URL).trim() || DOUBAO_ENV_API_BASE_URL,
+    apiKey: (provider.apiKey || DOUBAO_ENV_API_KEY()).trim(),
+    imageModel: (provider.imageModel || DOUBAO_ENV_IMAGE_MODEL).trim() || DOUBAO_5_IMAGE_MODEL,
+  };
+}
+
+function resolveOpenRouterImageConfig(): ImageProviderConfig {
+  const settings = getModelSettings();
+  const provider = settings.providers.openrouter;
+  return {
+    provider: 'openrouter',
+    apiBaseUrl: (provider.apiBaseUrl || OPENROUTER_DEFAULT_API_BASE_URL).trim() || OPENROUTER_DEFAULT_API_BASE_URL,
+    apiKey: (provider.apiKey || '').trim(),
+    imageModel: (provider.imageModel || OPENROUTER_GPT_IMAGE_MODEL).trim() || OPENROUTER_GPT_IMAGE_MODEL,
+  };
+}
+
+function resolveImageProviderConfig(model: string): ImageProviderConfig {
+  return isOpenRouterImageModel(model) ? resolveOpenRouterImageConfig() : resolveDoubaoImageConfig();
+}
+
+function resolveDoubaoChatConfig() {
+  const config = resolveDoubaoImageConfig();
+  return {
+    apiBaseUrl: config.apiBaseUrl,
+    apiKey: config.apiKey,
+  };
+}
+
 export function isDoubaoConfigured() {
-  return Boolean(DOUBAO_API_KEY());
+  return Boolean(resolveDoubaoChatConfig().apiKey);
 }
 
 export function isDoubaoVideoConfigured() {
-  return Boolean(DOUBAO_API_KEY() && DEFAULT_VIDEO_MODEL());
+  return Boolean(resolveDoubaoChatConfig().apiKey && DEFAULT_VIDEO_MODEL());
 }
 
-function requireApiKey() {
-  const key = DOUBAO_API_KEY();
-  if (!key) {
-    throw new Error('未配置豆包 API Key，请在 .env.local 中设置 VITE_DOUBAO_API_KEY。');
+export function isImageModelConfigured(model: string) {
+  const config = resolveImageProviderConfig(model || DOUBAO_5_IMAGE_MODEL);
+  return Boolean(config.apiBaseUrl && config.apiKey);
+}
+
+export function getImageModelConfigurationMessage(model: string) {
+  if (isOpenRouterImageModel(model || '')) {
+    return '当前所选模型未配置，请前往模型设置页完成 OpenRouter 地址和 API Key 配置。';
   }
-  return key;
+  return '当前所选模型未配置，请前往模型设置页完成豆包地址和 API Key 配置，或检查 VITE_DOUBAO_* 环境变量。';
 }
 
 function requireVideoModel() {
@@ -145,16 +209,17 @@ function readErrorMessage(payload: any, status: number) {
     payload?.message ||
     payload?.msg ||
     payload?.detail ||
-    `豆包请求失败（HTTP ${status}）`;
+    `请求失败（HTTP ${status}）`;
   return String(message);
 }
 
-async function postJSON(path: string, body: Record<string, unknown>) {
-  const response = await fetch(`${DOUBAO_API_BASE_URL}${path}`, {
+async function postJSON(path: string, body: Record<string, unknown>, config: RequestConfig) {
+  const response = await fetch(`${config.apiBaseUrl}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${requireApiKey()}`,
+      Authorization: `Bearer ${config.apiKey}`,
+      ...(config.headers || {}),
     },
     body: JSON.stringify(body),
   });
@@ -166,11 +231,12 @@ async function postJSON(path: string, body: Record<string, unknown>) {
   return payload;
 }
 
-async function getJSON(path: string) {
-  const response = await fetch(`${DOUBAO_API_BASE_URL}${path}`, {
+async function getJSON(path: string, config: RequestConfig) {
+  const response = await fetch(`${config.apiBaseUrl}${path}`, {
     method: 'GET',
     headers: {
-      Authorization: `Bearer ${requireApiKey()}`,
+      Authorization: `Bearer ${config.apiKey}`,
+      ...(config.headers || {}),
     },
   });
 
@@ -294,6 +360,18 @@ function parseAssistantOutput(rawText: string) {
   };
 }
 
+function getOpenRouterHeaders() {
+  const headers: Record<string, string> = {
+    'X-Title': '电商AI',
+  };
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    headers['HTTP-Referer'] = window.location.origin;
+  }
+
+  return headers;
+}
+
 export async function chatWithAI(
   messages: ChatHistoryMessage[],
   userMessage: string,
@@ -315,24 +393,33 @@ export async function chatWithAI(
     };
   }
 
-  const payload = await postJSON('/chat/completions', {
-    model: (options?.model || DEFAULT_CHAT_MODEL).trim(),
-    temperature: typeof options?.temperature === 'number' ? options.temperature : 0.7,
-    messages: [
-      {
-        role: 'system',
-        content: (options?.systemPrompt || DEFAULT_SYSTEM_PROMPT).trim(),
-      },
-      ...messages.map((message) => ({
-        role: normalizeRole(message.role),
-        content: message.content,
-      })),
-      {
-        role: 'user',
-        content: buildUserContent(userMessage, attachedImages),
-      },
-    ],
-  });
+  const doubaoConfig = resolveDoubaoChatConfig();
+  if (!doubaoConfig.apiKey) {
+    throw new Error('未配置豆包对话能力，请在模型设置页完成豆包 API Key 配置。');
+  }
+
+  const payload = await postJSON(
+    '/chat/completions',
+    {
+      model: (options?.model || DEFAULT_CHAT_MODEL).trim(),
+      temperature: typeof options?.temperature === 'number' ? options.temperature : 0.7,
+      messages: [
+        {
+          role: 'system',
+          content: (options?.systemPrompt || DEFAULT_SYSTEM_PROMPT).trim(),
+        },
+        ...messages.map((message) => ({
+          role: normalizeRole(message.role),
+          content: message.content,
+        })),
+        {
+          role: 'user',
+          content: buildUserContent(userMessage, attachedImages),
+        },
+      ],
+    },
+    doubaoConfig
+  );
 
   const rawText = extractAssistantText(payload);
   const parsed = parseAssistantOutput(rawText);
@@ -444,27 +531,27 @@ function extractVideoUrl(payload: any) {
   );
 }
 
-export async function generateImageAI(
+async function generateDoubaoImage(
   prompt: string,
-  model: string = DEFAULT_IMAGE_MODEL,
-  referenceImages: string[] = []
+  model: string,
+  referenceImages: string[]
 ): Promise<string> {
-  const cleanPrompt = prompt.trim();
-  if (!cleanPrompt) {
-    throw new Error('提示词不能为空。');
+  const config = resolveDoubaoImageConfig();
+  if (!config.apiKey) {
+    throw new Error(getImageModelConfigurationMessage(model));
   }
 
   const refs = referenceImages.filter(Boolean);
   const basePayload: Record<string, unknown> = {
-    model: (model || DEFAULT_IMAGE_MODEL).trim(),
-    prompt: cleanPrompt,
+    model: (model || config.imageModel).trim(),
+    prompt,
     response_format: 'b64_json',
     watermark: false,
   };
 
   let payload: any;
   if (!refs.length) {
-    payload = await postJSON('/images/generations', basePayload);
+    payload = await postJSON('/images/generations', basePayload, config);
   } else {
     const candidates: Record<string, unknown>[] = [
       { ...basePayload, image: refs.length === 1 ? refs[0] : refs },
@@ -476,7 +563,7 @@ export async function generateImageAI(
     let lastSchemaError: Error | null = null;
     for (const candidate of candidates) {
       try {
-        payload = await postJSON('/images/generations', candidate);
+        payload = await postJSON('/images/generations', candidate, config);
         lastSchemaError = null;
         break;
       } catch (error) {
@@ -509,6 +596,82 @@ export async function generateImageAI(
   throw new Error(String(message));
 }
 
+async function generateOpenRouterImage(
+  prompt: string,
+  model: string,
+  referenceImages: string[]
+): Promise<string> {
+  const config = resolveOpenRouterImageConfig();
+  if (!config.apiKey) {
+    throw new Error(getImageModelConfigurationMessage(model));
+  }
+
+  const refs = referenceImages.filter(Boolean);
+  const userContent = refs.length
+    ? [
+        { type: 'text', text: prompt } as ChatContentPart,
+        ...refs.map(
+          (image) =>
+            ({
+              type: 'image_url',
+              image_url: { url: image },
+            }) satisfies ChatContentPart
+        ),
+      ]
+    : prompt;
+
+  const payload = await postJSON(
+    '/chat/completions',
+    {
+      model: (model || config.imageModel).trim(),
+      messages: [
+        {
+          role: 'user',
+          content: userContent,
+        },
+      ],
+      modalities: ['image', 'text'],
+      stream: false,
+    },
+    {
+      apiBaseUrl: config.apiBaseUrl,
+      apiKey: config.apiKey,
+      headers: getOpenRouterHeaders(),
+    }
+  );
+
+  const imageUrl = payload?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  if (typeof imageUrl === 'string' && imageUrl.trim()) {
+    if (imageUrl.startsWith('data:')) return imageUrl;
+    try {
+      return await fetchImageAsDataUrl(imageUrl);
+    } catch {
+      return imageUrl;
+    }
+  }
+
+  const message =
+    payload?.error?.message || payload?.message || payload?.msg || 'OpenRouter 未返回可用图片。';
+  throw new Error(String(message));
+}
+
+export async function generateImageAI(
+  prompt: string,
+  model: string = DOUBAO_ENV_IMAGE_MODEL,
+  referenceImages: string[] = []
+): Promise<string> {
+  const cleanPrompt = prompt.trim();
+  if (!cleanPrompt) {
+    throw new Error('提示词不能为空。');
+  }
+
+  if (isOpenRouterImageModel(model || '')) {
+    return generateOpenRouterImage(cleanPrompt, model, referenceImages);
+  }
+
+  return generateDoubaoImage(cleanPrompt, model, referenceImages);
+}
+
 export async function generateVideoAI(
   prompt: string,
   referenceImages: string[] = []
@@ -516,6 +679,11 @@ export async function generateVideoAI(
   const cleanPrompt = prompt.trim();
   if (!cleanPrompt) {
     throw new Error('视频生成提示词不能为空。');
+  }
+
+  const doubaoConfig = resolveDoubaoChatConfig();
+  if (!doubaoConfig.apiKey) {
+    throw new Error('未配置豆包视频能力，请先完成豆包 API Key 配置。');
   }
 
   const refs = referenceImages.filter(Boolean);
@@ -540,7 +708,7 @@ export async function generateVideoAI(
   for (const path of pathCandidates) {
     for (const body of bodyCandidates) {
       try {
-        const payload = await postJSON(path, body);
+        const payload = await postJSON(path, body, doubaoConfig);
         const taskId = String(extractTaskId(payload) || '').trim();
         if (!taskId) {
           throw new Error('视频生成任务已创建，但未返回任务 ID。');
@@ -570,12 +738,17 @@ export async function pollVideoTask(taskId: string): Promise<VideoTaskStatusResu
     throw new Error('视频任务 ID 不能为空。');
   }
 
+  const doubaoConfig = resolveDoubaoChatConfig();
+  if (!doubaoConfig.apiKey) {
+    throw new Error('未配置豆包视频能力，请先完成豆包 API Key 配置。');
+  }
+
   const pathCandidates = [`/videos/generations/${cleanTaskId}`, `/videos/${cleanTaskId}`];
   let lastError: Error | null = null;
 
   for (const path of pathCandidates) {
     try {
-      const payload = await getJSON(path);
+      const payload = await getJSON(path, doubaoConfig);
       return {
         taskId: String(extractTaskId(payload) || cleanTaskId),
         status: extractVideoStatus(payload),

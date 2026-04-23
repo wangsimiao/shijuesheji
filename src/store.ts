@@ -1,7 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
-import { parseLegacyWorkspaceSnapshot } from './components/ai-vision/workspace-model';
+import {
+  DEFAULT_IMAGE_MODEL_OPTION,
+  DOUBAO_5_IMAGE_MODEL,
+  OPENROUTER_GPT_IMAGE_MODEL,
+  parseLegacyWorkspaceSnapshot,
+} from './components/ai-vision/workspace-model';
 import {
   BrandTemplate,
+  ModelProviderSettings,
   ModelSettings,
   OpenLovartProject,
   ProductMonitorConfig,
@@ -22,7 +28,8 @@ const PRODUCT_MONITOR_CONFIG_KEY = 'ecommerce_ai_product_monitor_config';
 const PRODUCT_MONITOR_RUNS_KEY = 'ecommerce_ai_product_monitor_runs';
 const LEGACY_AI_VISION_STORAGE_KEY = 'ai_visual_workspace_v1';
 const LEGACY_AI_VISION_MIGRATION_KEY = 'ecommerce_ai_ai_visual_migrated_v1';
-const DEFAULT_IMAGE_MODEL = 'doubao-seedream-5-0-260128';
+const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
 
 const DEFAULT_VIEW: ViewState = {
   x: 100,
@@ -32,20 +39,39 @@ const DEFAULT_VIEW: ViewState = {
 };
 
 const DEFAULT_MODEL_SETTINGS: ModelSettings = {
-  provider: 'doubao',
-  displayName: '豆包',
-  imageModel: DEFAULT_IMAGE_MODEL,
-  apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-  apiKey: '',
-  promptPrefix: '',
-  promptSuffix: '',
+  providers: {
+    doubao: {
+      imageModel: DOUBAO_5_IMAGE_MODEL,
+      apiBaseUrl: DOUBAO_DEFAULT_API_BASE_URL,
+      apiKey: '',
+    },
+    openrouter: {
+      imageModel: OPENROUTER_GPT_IMAGE_MODEL,
+      apiBaseUrl: OPENROUTER_DEFAULT_API_BASE_URL,
+      apiKey: '',
+    },
+  },
+  defaultAiVisionImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
   retryCount: 1,
   timeoutMs: 45000,
   updatedAt: Date.now(),
 };
 
+type LegacyModelSettings = Partial<{
+  provider: 'doubao';
+  displayName: string;
+  imageModel: string;
+  apiBaseUrl: string;
+  apiKey: string;
+  promptPrefix: string;
+  promptSuffix: string;
+  retryCount: number;
+  timeoutMs: number;
+  updatedAt: number;
+}>;
+
 const DEFAULT_MONITOR_CONFIG_BASE: Omit<ProductMonitorConfig, 'updatedAt'> = {
-  categories: ['餐椅'],
+  categories: ['餐饮'],
   customCategories: [],
   cycle: 'daily',
   runTime: '09:00',
@@ -195,6 +221,24 @@ function sortProjects(projects: Project[]) {
   return [...projects].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0));
 }
 
+function normalizeProviderSettings(
+  candidate: Partial<ModelProviderSettings> | null | undefined,
+  fallback: ModelProviderSettings
+): ModelProviderSettings {
+  return {
+    imageModel:
+      typeof candidate?.imageModel === 'string' && candidate.imageModel.trim()
+        ? candidate.imageModel.trim()
+        : fallback.imageModel,
+    apiBaseUrl:
+      typeof candidate?.apiBaseUrl === 'string' && candidate.apiBaseUrl.trim()
+        ? candidate.apiBaseUrl.trim()
+        : fallback.apiBaseUrl,
+    apiKey:
+      typeof candidate?.apiKey === 'string' && candidate.apiKey.trim() ? candidate.apiKey.trim() : '',
+  };
+}
+
 export async function getProjects(): Promise<Project[]> {
   if (!hasIndexedDb()) {
     return getProjectsFromLocalStorage();
@@ -254,7 +298,7 @@ export async function createNewProject(name: string): Promise<Project> {
     sessions: [{ id: sessionId, title: 'New chat', messages: [], createdAt: Date.now() }],
     currentSessionId: sessionId,
     view: { ...DEFAULT_VIEW },
-    selectedImageModel: DEFAULT_IMAGE_MODEL,
+    selectedImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
     sceneBySessionId: { [sessionId]: 'general' },
     updatedAt: Date.now(),
     creatorId: currentUser.id,
@@ -329,16 +373,79 @@ export async function addBrandTemplateHydrated(
 }
 
 export function createDefaultModelSettings(): ModelSettings {
-  return { ...DEFAULT_MODEL_SETTINGS, updatedAt: Date.now() };
+  return {
+    providers: {
+      doubao: { ...DEFAULT_MODEL_SETTINGS.providers.doubao },
+      openrouter: { ...DEFAULT_MODEL_SETTINGS.providers.openrouter },
+    },
+    defaultAiVisionImageModel: DEFAULT_MODEL_SETTINGS.defaultAiVisionImageModel,
+    retryCount: DEFAULT_MODEL_SETTINGS.retryCount,
+    timeoutMs: DEFAULT_MODEL_SETTINGS.timeoutMs,
+    updatedAt: Date.now(),
+  };
 }
 
 export function getModelSettings(): ModelSettings {
-  const parsed = safeJsonParse<ModelSettings | null>(localStorage.getItem(MODEL_SETTINGS_KEY), null);
+  const parsed = safeJsonParse<ModelSettings | LegacyModelSettings | null>(
+    localStorage.getItem(MODEL_SETTINGS_KEY),
+    null
+  );
   if (!parsed) return createDefaultModelSettings();
+
+  if ('providers' in parsed && parsed.providers) {
+    return {
+      providers: {
+        doubao: normalizeProviderSettings(parsed.providers.doubao, DEFAULT_MODEL_SETTINGS.providers.doubao),
+        openrouter: normalizeProviderSettings(
+          parsed.providers.openrouter,
+          DEFAULT_MODEL_SETTINGS.providers.openrouter
+        ),
+      },
+      defaultAiVisionImageModel:
+        typeof parsed.defaultAiVisionImageModel === 'string' && parsed.defaultAiVisionImageModel.trim()
+          ? parsed.defaultAiVisionImageModel.trim()
+          : DEFAULT_MODEL_SETTINGS.defaultAiVisionImageModel,
+      retryCount:
+        typeof parsed.retryCount === 'number' && Number.isFinite(parsed.retryCount)
+          ? parsed.retryCount
+          : DEFAULT_MODEL_SETTINGS.retryCount,
+      timeoutMs:
+        typeof parsed.timeoutMs === 'number' && Number.isFinite(parsed.timeoutMs)
+          ? parsed.timeoutMs
+          : DEFAULT_MODEL_SETTINGS.timeoutMs,
+      updatedAt:
+        typeof parsed.updatedAt === 'number' && Number.isFinite(parsed.updatedAt)
+          ? parsed.updatedAt
+          : Date.now(),
+    };
+  }
+
+  const legacy = parsed as LegacyModelSettings;
   return {
-    ...DEFAULT_MODEL_SETTINGS,
-    ...parsed,
-    provider: 'doubao',
+    providers: {
+      doubao: normalizeProviderSettings(
+        {
+          imageModel: legacy.imageModel,
+          apiBaseUrl: legacy.apiBaseUrl,
+          apiKey: legacy.apiKey,
+        },
+        DEFAULT_MODEL_SETTINGS.providers.doubao
+      ),
+      openrouter: { ...DEFAULT_MODEL_SETTINGS.providers.openrouter },
+    },
+    defaultAiVisionImageModel: DEFAULT_MODEL_SETTINGS.defaultAiVisionImageModel,
+    retryCount:
+      typeof legacy.retryCount === 'number' && Number.isFinite(legacy.retryCount)
+        ? legacy.retryCount
+        : DEFAULT_MODEL_SETTINGS.retryCount,
+    timeoutMs:
+      typeof legacy.timeoutMs === 'number' && Number.isFinite(legacy.timeoutMs)
+        ? legacy.timeoutMs
+        : DEFAULT_MODEL_SETTINGS.timeoutMs,
+    updatedAt:
+      typeof legacy.updatedAt === 'number' && Number.isFinite(legacy.updatedAt)
+        ? legacy.updatedAt
+        : Date.now(),
   };
 }
 
