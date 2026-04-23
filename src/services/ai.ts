@@ -49,6 +49,10 @@ export type GenerateVideoTaskResult = {
   status: string;
 };
 
+export type GenerateImageAIOptions = {
+  systemPrompt?: string;
+};
+
 export type VideoTaskStatusResult = {
   taskId: string;
   status: string;
@@ -398,6 +402,10 @@ export async function chatWithAI(
     throw new Error('未配置豆包对话能力，请在模型设置页完成豆包 API Key 配置。');
   }
 
+  const resolvedSystemPrompt = options?.systemPrompt?.trim()
+    ? `${DEFAULT_SYSTEM_PROMPT}\n\n${options.systemPrompt.trim()}`
+    : DEFAULT_SYSTEM_PROMPT;
+
   const payload = await postJSON(
     '/chat/completions',
     {
@@ -406,7 +414,7 @@ export async function chatWithAI(
       messages: [
         {
           role: 'system',
-          content: (options?.systemPrompt || DEFAULT_SYSTEM_PROMPT).trim(),
+          content: resolvedSystemPrompt.trim(),
         },
         ...messages.map((message) => ({
           role: normalizeRole(message.role),
@@ -534,7 +542,8 @@ function extractVideoUrl(payload: any) {
 async function generateDoubaoImage(
   prompt: string,
   model: string,
-  referenceImages: string[]
+  referenceImages: string[],
+  options?: GenerateImageAIOptions
 ): Promise<string> {
   const config = resolveDoubaoImageConfig();
   if (!config.apiKey) {
@@ -542,9 +551,12 @@ async function generateDoubaoImage(
   }
 
   const refs = referenceImages.filter(Boolean);
+  const finalPrompt = options?.systemPrompt?.trim()
+    ? `[系统规范]\n${options.systemPrompt.trim()}\n\n[用户需求]\n${prompt}`
+    : prompt;
   const basePayload: Record<string, unknown> = {
     model: (model || config.imageModel).trim(),
-    prompt,
+    prompt: finalPrompt,
     response_format: 'b64_json',
     watermark: false,
   };
@@ -599,7 +611,8 @@ async function generateDoubaoImage(
 async function generateOpenRouterImage(
   prompt: string,
   model: string,
-  referenceImages: string[]
+  referenceImages: string[],
+  options?: GenerateImageAIOptions
 ): Promise<string> {
   const config = resolveOpenRouterImageConfig();
   if (!config.apiKey) {
@@ -620,16 +633,23 @@ async function generateOpenRouterImage(
       ]
     : prompt;
 
+  const messages: Array<{ role: 'system' | 'user'; content: string | ChatContentPart[] }> = [];
+  if (options?.systemPrompt?.trim()) {
+    messages.push({
+      role: 'system',
+      content: options.systemPrompt.trim(),
+    });
+  }
+  messages.push({
+    role: 'user',
+    content: userContent,
+  });
+
   const payload = await postJSON(
     '/chat/completions',
     {
       model: (model || config.imageModel).trim(),
-      messages: [
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
+      messages,
       modalities: ['image', 'text'],
       stream: false,
     },
@@ -658,7 +678,8 @@ async function generateOpenRouterImage(
 export async function generateImageAI(
   prompt: string,
   model: string = DOUBAO_5_IMAGE_MODEL,
-  referenceImages: string[] = []
+  referenceImages: string[] = [],
+  options?: GenerateImageAIOptions
 ): Promise<string> {
   const cleanPrompt = prompt.trim();
   if (!cleanPrompt) {
@@ -666,10 +687,10 @@ export async function generateImageAI(
   }
 
   if (isOpenRouterImageModel(model || '')) {
-    return generateOpenRouterImage(cleanPrompt, model, referenceImages);
+    return generateOpenRouterImage(cleanPrompt, model, referenceImages, options);
   }
 
-  return generateDoubaoImage(cleanPrompt, model, referenceImages);
+  return generateDoubaoImage(cleanPrompt, model, referenceImages, options);
 }
 
 export async function generateVideoAI(

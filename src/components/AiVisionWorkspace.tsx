@@ -357,7 +357,6 @@ export default function AiVisionWorkspace({
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
   const brandSpecMenuRef = useRef<HTMLDivElement | null>(null);
   const brandMenuRef = useRef<HTMLDivElement | null>(null);
-  const lastBrandSpecInjectionRef = useRef<{ brandSpecId: string; chatInputSnapshot: string } | null>(null);
   const hasManualBoardNameEditRef = useRef(false);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
@@ -949,6 +948,12 @@ export default function AiVisionWorkspace({
     [sessions, currentSessionId]
   );
   const currentScene = currentSession ? sceneBySessionId[currentSession.id] || DEFAULT_SCENE_TAB : DEFAULT_SCENE_TAB;
+  const activeBrandSpec = activeBrandSpecId
+    ? brandSpecs.find((item) => item.id === activeBrandSpecId) || null
+    : null;
+  const activeBrandSystemPrompt = activeBrandSpec?.specText?.trim()
+    ? `当前品牌规范（仅供模型遵循，不要原文复述给用户）：\n${activeBrandSpec.specText.trim()}`
+    : undefined;
   const effectiveSelectedImageModel = selectedImageModel || DEFAULT_IMAGE_MODEL_OPTION.value;
   const isSelectedImageModelConfigured = isImageModelConfigured(effectiveSelectedImageModel);
   const selectedImageModelConfigurationMessage = getResolvedImageModelConfigurationMessage(
@@ -1177,32 +1182,11 @@ export default function AiVisionWorkspace({
     }));
   }
 
-  function handleSetChatInput(value: string) {
-    lastBrandSpecInjectionRef.current = null;
-    setChatInput(value);
-  }
-
   function handleSelectBrandSpec(brandSpecId: string) {
-    const spec = brandSpecs.find((item) => item.id === brandSpecId);
-    if (!spec) return;
-    setActiveBrandSpecId(spec.id);
+    if (!brandSpecs.some((item) => item.id === brandSpecId)) return;
+    setActiveBrandSpecId(brandSpecId);
     setIsBrandSpecMenuOpen(false);
-    setChatInput((previous) => {
-      const nextValue = previous.trim().length > 0 ? `${previous}\n\n${spec.specText}` : spec.specText;
-      const lastInjection = lastBrandSpecInjectionRef.current;
-      if (
-        lastInjection &&
-        lastInjection.brandSpecId === spec.id &&
-        lastInjection.chatInputSnapshot === previous
-      ) {
-        return previous;
-      }
-      lastBrandSpecInjectionRef.current = {
-        brandSpecId: spec.id,
-        chatInputSnapshot: nextValue,
-      };
-      return nextValue;
-    });
+    setStatusNotice(`已选中品牌规范：${brandSpecs.find((item) => item.id === brandSpecId)?.brandName || ''}`);
   }
 
   async function handleSaveBrandSpec(brandSpecId: string, specText: string) {
@@ -1795,7 +1779,9 @@ export default function AiVisionWorkspace({
 
     try {
       const referenceImage = await exportImageSource(targetItem);
-      const nextImage = await generateImageAI(prompt, selectedImageModel, [referenceImage]);
+      const nextImage = await generateImageAI(prompt, selectedImageModel, [referenceImage], {
+        systemPrompt: activeBrandSystemPrompt,
+      });
       setItems((previous) =>
         previous.map((item) =>
           item.id === targetItem.id
@@ -1864,7 +1850,9 @@ export default function AiVisionWorkspace({
         content: message.content,
       }));
 
-      const response = await chatWithAI(history, effectiveTextForModel, attachedImages);
+      const response = await chatWithAI(history, effectiveTextForModel, attachedImages, {
+        systemPrompt: activeBrandSystemPrompt,
+      });
       let nextAssistantMessages: ChatMessage[] | null = null;
 
       updateCurrentSessionMessages(currentSession.id, (previous) => {
@@ -1896,7 +1884,10 @@ export default function AiVisionWorkspace({
             const imageUrl = await generateImageAI(
               prompt,
               selectedImageModel,
-              call.args.referenceImages || attachedImages
+              call.args.referenceImages || attachedImages,
+              {
+                systemPrompt: activeBrandSystemPrompt,
+              }
             );
             const imageSize = await loadImageDimensions(imageUrl).catch(() => ({
               width: 1024,
@@ -2319,7 +2310,7 @@ export default function AiVisionWorkspace({
           setIsHistoryMenuOpen(false);
         }}
         onSelectScene={handleSelectScene}
-        onSetChatInput={handleSetChatInput}
+        onSetChatInput={setChatInput}
         onRemoveChatImage={(imageId) =>
           setChatInputImages((previous) => previous.filter((item) => item.id !== imageId))
         }

@@ -299,6 +299,8 @@ export default function ChatSidebar({
 }: ChatSidebarProps) {
   const canSend = !isChatLoading && (chatInput.trim().length > 0 || chatInputImages.length > 0);
   const title = projectTitle.trim() || '未命名项目';
+  const activeBrandName =
+    brandSpecs.find((item) => item.id === activeBrandSpecId)?.brandName || '未选择';
 
   return (
     <aside
@@ -516,9 +518,13 @@ export default function ChatSidebar({
                       <button
                         type="button"
                         onClick={onToggleBrandSpecMenu}
-                        className="inline-flex h-9 items-center gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-slate-200 transition hover:bg-[#1a1f28]"
+                        className={`inline-flex h-9 items-center gap-1 rounded-[12px] border px-3 text-[12px] transition ${
+                          activeBrandSpecId
+                            ? 'border-cyan-300/45 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15'
+                            : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
+                        }`}
                       >
-                        品牌规范
+                        品牌规范 · {activeBrandName}
                         <ChevronDown
                           className={`h-3 w-3 transition ${isBrandSpecMenuOpen ? 'rotate-180' : ''}`}
                         />
