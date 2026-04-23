@@ -63,7 +63,8 @@ interface CanvasStageProps {
   cropState: CropState | null;
   editingTextItemId: string | null;
   editingTextValue: string;
-  canvasViewportRef: RefObject<HTMLDivElement>;
+  canvasRootRef: RefObject<HTMLDivElement | null>;
+  canvasViewportRef: RefObject<HTMLDivElement | null>;
   imageInputRef: RefObject<HTMLInputElement>;
   videoInputRef: RefObject<HTMLInputElement>;
   isModelConfigured: boolean;
@@ -110,6 +111,10 @@ interface CanvasStageProps {
   onRegenerateSubmit: () => Promise<void>;
   onMissingRegenerateConfig: () => void;
   onAddSelectedImageToChat: () => void;
+}
+
+function assignElementRef<T>(ref: RefObject<T | null>, value: T | null) {
+  (ref as React.MutableRefObject<T | null>).current = value;
 }
 
 const RESIZE_HANDLES: Array<{ handle: ResizeHandle; style: React.CSSProperties }> = [
@@ -298,6 +303,7 @@ export default function CanvasStage({
   cropState,
   editingTextItemId,
   editingTextValue,
+  canvasRootRef,
   canvasViewportRef,
   imageInputRef,
   videoInputRef,
@@ -344,17 +350,22 @@ export default function CanvasStage({
   return (
     <div className="relative min-h-0 flex-1">
       <div
-        ref={canvasViewportRef}
+        ref={(node) => {
+          assignElementRef(canvasViewportRef, node);
+          assignElementRef(canvasRootRef, node);
+        }}
         onPointerEnter={onCanvasPointerEnter}
         onPointerLeave={onCanvasPointerLeave}
         onPointerDown={onCanvasPointerDown}
         onWheel={onCanvasWheel}
-        className="relative h-full overflow-hidden bg-[#090c13]"
+        className="ai-vision-canvas-viewport relative h-full overflow-hidden bg-[#090c13]"
         style={{
           backgroundImage:
             'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)',
           backgroundSize: '18px 18px',
           backgroundPosition: 'center center',
+          touchAction: 'none',
+          overscrollBehavior: 'none',
         }}
       >
         <div

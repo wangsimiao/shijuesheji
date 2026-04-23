@@ -21,3 +21,34 @@
   --color-section: #cbd5e1;
   --color-layout-section: #bfdbfe;
 }
+
+html.ai-vision-workspace-active,
+body.ai-vision-workspace-active,
+body.ai-vision-workspace-active #root {
+  overscroll-behavior: none;
+}
+
+.ai-vision-workspace {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.ai-vision-canvas-viewport {
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+.ai-vision-chat-sidebar {
+  overscroll-behavior: contain;
+}
+
+.ai-vision-chat-scroll,
+.ai-vision-chat-menu-scroll {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.ai-vision-workspace.ai-vision-gesture-lock .ai-vision-chat-sidebar,
+.ai-vision-workspace.ai-vision-gesture-lock header {
+  pointer-events: none;
+}

@@ -239,6 +239,62 @@ function resizeItem(item: CanvasItem, handle: ResizeHandle, deltaX: number, delt
   return resizeItemFreeform(item, handle, deltaX, deltaY);
 }
 
+type NativeGestureEvent = Event & {
+  clientX?: number;
+  clientY?: number;
+  scale?: number;
+};
+
+type NativeGestureDriver = 'touch' | 'pointer' | null;
+
+type PointerClientPoint = {
+  clientX: number;
+  clientY: number;
+};
+
+function isTargetInsideContainer(target: EventTarget | null, container: HTMLElement | null) {
+  return Boolean(container && target instanceof Node && container.contains(target));
+}
+
+function isTouchInsideContainer(touch: Touch, container: HTMLElement | null) {
+  if (!container) return false;
+  if (isTargetInsideContainer(touch.target, container)) return true;
+
+  const rect = container.getBoundingClientRect();
+  return (
+    touch.clientX >= rect.left &&
+    touch.clientX <= rect.right &&
+    touch.clientY >= rect.top &&
+    touch.clientY <= rect.bottom
+  );
+}
+
+function getTouchDistance(first: Touch, second: Touch) {
+  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+}
+
+function getTouchCenter(first: Touch, second: Touch, rect: DOMRect): CanvasPoint {
+  return {
+    x: (first.clientX + second.clientX) / 2 - rect.left,
+    y: (first.clientY + second.clientY) / 2 - rect.top,
+  };
+}
+
+function getClientPointDistance(first: PointerClientPoint, second: PointerClientPoint) {
+  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+}
+
+function getClientPointCenter(
+  first: PointerClientPoint,
+  second: PointerClientPoint,
+  rect: DOMRect
+): CanvasPoint {
+  return {
+    x: (first.clientX + second.clientX) / 2 - rect.left,
+    y: (first.clientY + second.clientY) / 2 - rect.top,
+  };
+}
+
 export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
@@ -271,7 +327,9 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const [editingTextItemId, setEditingTextItemId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState('');
   const [replaceTargetItemId, setReplaceTargetItemId] = useState<string | null>(null);
+  const [isCanvasGestureLocked, setIsCanvasGestureLocked] = useState(false);
 
+  const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const replaceImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -283,11 +341,37 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const hasManualBoardNameEditRef = useRef(false);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
+  const activeTouchGestureRef = useRef(false);
+  const gestureStartedInCanvasRef = useRef(false);
+  const activeTouchIdsRef = useRef<Set<number>>(new Set());
+  const activeTouchPointerIdsRef = useRef<Set<number>>(new Set());
+  const touchPointerPositionsRef = useRef<Map<number, PointerClientPoint>>(new Map());
+  const nativeGestureDriverRef = useRef<NativeGestureDriver>(null);
+  const lastPinchDistanceRef = useRef<number | null>(null);
+  const lastPinchCenterRef = useRef<CanvasPoint | null>(null);
 
   const itemsRef = useRef(items);
   const sessionsRef = useRef(sessions);
   const viewRef = useRef(view);
   const viewportSizeRef = useRef(viewportSize);
+
+  function clearTouchGestureState() {
+    activeTouchGestureRef.current = false;
+    gestureStartedInCanvasRef.current = false;
+    activeTouchIdsRef.current.clear();
+    activeTouchPointerIdsRef.current.clear();
+    touchPointerPositionsRef.current.clear();
+    nativeGestureDriverRef.current = null;
+    lastPinchDistanceRef.current = null;
+    lastPinchCenterRef.current = null;
+    setIsCanvasGestureLocked(false);
+    setCanvasHover(false);
+    setCanvasWheelLock(false);
+    if (wheelLockTimerRef.current) {
+      window.clearTimeout(wheelLockTimerRef.current);
+      wheelLockTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     itemsRef.current = items;
@@ -310,6 +394,16 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       if (wheelLockTimerRef.current) {
         window.clearTimeout(wheelLockTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.add('ai-vision-workspace-active');
+    document.body.classList.add('ai-vision-workspace-active');
+
+    return () => {
+      document.documentElement.classList.remove('ai-vision-workspace-active');
+      document.body.classList.remove('ai-vision-workspace-active');
     };
   }, []);
 
@@ -385,6 +479,333 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       wheelLockTimerRef.current = null;
     }
   }, [cropState]);
+
+  useEffect(() => {
+    const preventCapturedGesture = (event: Event) => {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+    };
+
+    const handleTouchStartCapture = (event: TouchEvent) => {
+      if (nativeGestureDriverRef.current === 'pointer') return;
+      const canvas = canvasRootRef.current;
+      if (!canvas) return;
+
+      for (const touch of Array.from(event.changedTouches)) {
+        if (isTouchInsideContainer(touch, canvas)) {
+          activeTouchIdsRef.current.add(touch.identifier);
+        }
+      }
+
+      const currentTouches = Array.from(event.touches);
+      const hasCanvasOwnedTouch = currentTouches.some((touch) =>
+        activeTouchIdsRef.current.has(touch.identifier)
+      );
+
+      if (!activeTouchGestureRef.current && currentTouches.length >= 2 && hasCanvasOwnedTouch) {
+        const [firstTouch, secondTouch] = currentTouches;
+        const rect = canvas.getBoundingClientRect();
+        nativeGestureDriverRef.current = 'touch';
+        gestureStartedInCanvasRef.current = true;
+        activeTouchGestureRef.current = true;
+        setIsCanvasGestureLocked(true);
+        interactionRef.current = null;
+        lastPinchDistanceRef.current = getTouchDistance(firstTouch, secondTouch);
+        lastPinchCenterRef.current = getTouchCenter(firstTouch, secondTouch, rect);
+      }
+
+      if (gestureStartedInCanvasRef.current) {
+        preventCapturedGesture(event);
+      }
+    };
+
+    const handleTouchMoveCapture = (event: TouchEvent) => {
+      if (nativeGestureDriverRef.current === 'pointer') return;
+      if (!gestureStartedInCanvasRef.current) return;
+
+      if (!activeTouchGestureRef.current || event.touches.length < 2) {
+        preventCapturedGesture(event);
+        return;
+      }
+
+      const canvas = canvasRootRef.current;
+      if (!canvas) {
+        clearTouchGestureState();
+        return;
+      }
+
+      const [firstTouch, secondTouch] = Array.from(event.touches);
+      const rect = canvas.getBoundingClientRect();
+      const nextCenter = getTouchCenter(firstTouch, secondTouch, rect);
+      const nextDistance = getTouchDistance(firstTouch, secondTouch);
+      const previousCenter = lastPinchCenterRef.current || nextCenter;
+      const previousDistance = lastPinchDistanceRef.current || nextDistance;
+
+      preventCapturedGesture(event);
+
+      setView((previous) => {
+        const safeScaleRatio = previousDistance > 0 ? nextDistance / previousDistance : 1;
+        const nextScale = clamp(previous.scale * safeScaleRatio, MIN_SCALE, MAX_SCALE);
+        const worldX = (previousCenter.x - previous.x) / previous.scale;
+        const worldY = (previousCenter.y - previous.y) / previous.scale;
+
+        return {
+          ...previous,
+          scale: nextScale,
+          x: nextCenter.x - worldX * nextScale,
+          y: nextCenter.y - worldY * nextScale,
+        };
+      });
+
+      lastPinchDistanceRef.current = nextDistance;
+      lastPinchCenterRef.current = nextCenter;
+    };
+
+    const handleTouchEndCapture = (event: TouchEvent) => {
+      if (nativeGestureDriverRef.current === 'pointer') return;
+      for (const touch of Array.from(event.changedTouches)) {
+        activeTouchIdsRef.current.delete(touch.identifier);
+      }
+
+      if (!gestureStartedInCanvasRef.current) {
+        if (event.touches.length === 0) {
+          activeTouchIdsRef.current.clear();
+        }
+        return;
+      }
+
+      if (event.touches.length < 2) {
+        activeTouchGestureRef.current = false;
+        lastPinchDistanceRef.current = null;
+        lastPinchCenterRef.current = null;
+      }
+
+      if (event.touches.length === 0) {
+        clearTouchGestureState();
+      }
+
+      preventCapturedGesture(event);
+    };
+
+    const handleTouchCancelCapture = (event: TouchEvent) => {
+      if (nativeGestureDriverRef.current === 'pointer') return;
+      if (!gestureStartedInCanvasRef.current && activeTouchIdsRef.current.size === 0) return;
+      clearTouchGestureState();
+      preventCapturedGesture(event);
+    };
+
+    const handleGestureCapture = (event: Event) => {
+      const canvas = canvasRootRef.current;
+      if (
+        activeTouchGestureRef.current ||
+        gestureStartedInCanvasRef.current ||
+        isTargetInsideContainer((event as NativeGestureEvent).target, canvas)
+      ) {
+        preventCapturedGesture(event);
+      }
+    };
+
+    const getOwnedPointerTouches = () => {
+      return Array.from(activeTouchPointerIdsRef.current)
+        .map((pointerId) => touchPointerPositionsRef.current.get(pointerId))
+        .filter((point): point is PointerClientPoint => Boolean(point))
+        .slice(0, 2);
+    };
+
+    const handlePointerDownCapture = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch' || nativeGestureDriverRef.current === 'touch') return;
+
+      const canvas = canvasRootRef.current;
+      if (!canvas) return;
+
+      const isCanvasHit = isTargetInsideContainer(event.target, canvas);
+      const shouldOwnPointer =
+        isCanvasHit ||
+        activeTouchPointerIdsRef.current.size > 0 ||
+        gestureStartedInCanvasRef.current ||
+        activeTouchGestureRef.current;
+
+      if (!shouldOwnPointer) return;
+
+      activeTouchPointerIdsRef.current.add(event.pointerId);
+      touchPointerPositionsRef.current.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore unsupported capture errors; document listeners still keep ownership.
+      }
+
+      if (!activeTouchGestureRef.current && activeTouchPointerIdsRef.current.size >= 2) {
+        const points = getOwnedPointerTouches();
+        if (points.length >= 2) {
+          const rect = canvas.getBoundingClientRect();
+          nativeGestureDriverRef.current = 'pointer';
+          gestureStartedInCanvasRef.current = true;
+          activeTouchGestureRef.current = true;
+          setIsCanvasGestureLocked(true);
+          interactionRef.current = null;
+          lastPinchDistanceRef.current = getClientPointDistance(points[0], points[1]);
+          lastPinchCenterRef.current = getClientPointCenter(points[0], points[1], rect);
+        }
+      }
+
+      if (gestureStartedInCanvasRef.current || activeTouchPointerIdsRef.current.size >= 2) {
+        preventCapturedGesture(event);
+      }
+    };
+
+    const handlePointerMoveCapture = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch' || nativeGestureDriverRef.current === 'touch') return;
+      if (!activeTouchPointerIdsRef.current.has(event.pointerId)) return;
+
+      touchPointerPositionsRef.current.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+
+      if (!gestureStartedInCanvasRef.current || nativeGestureDriverRef.current !== 'pointer') return;
+
+      preventCapturedGesture(event);
+
+      const canvas = canvasRootRef.current;
+      if (!canvas) {
+        clearTouchGestureState();
+        return;
+      }
+
+      const points = getOwnedPointerTouches();
+      if (points.length < 2) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const nextCenter = getClientPointCenter(points[0], points[1], rect);
+      const nextDistance = getClientPointDistance(points[0], points[1]);
+      const previousCenter = lastPinchCenterRef.current || nextCenter;
+      const previousDistance = lastPinchDistanceRef.current || nextDistance;
+
+      setView((previous) => {
+        const safeScaleRatio = previousDistance > 0 ? nextDistance / previousDistance : 1;
+        const nextScale = clamp(previous.scale * safeScaleRatio, MIN_SCALE, MAX_SCALE);
+        const worldX = (previousCenter.x - previous.x) / previous.scale;
+        const worldY = (previousCenter.y - previous.y) / previous.scale;
+
+        return {
+          ...previous,
+          scale: nextScale,
+          x: nextCenter.x - worldX * nextScale,
+          y: nextCenter.y - worldY * nextScale,
+        };
+      });
+
+      lastPinchDistanceRef.current = nextDistance;
+      lastPinchCenterRef.current = nextCenter;
+    };
+
+    const handlePointerReleaseCapture = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch' || nativeGestureDriverRef.current === 'touch') return;
+      if (!activeTouchPointerIdsRef.current.has(event.pointerId) && !gestureStartedInCanvasRef.current) return;
+
+      activeTouchPointerIdsRef.current.delete(event.pointerId);
+      touchPointerPositionsRef.current.delete(event.pointerId);
+
+      if (nativeGestureDriverRef.current === 'pointer' && gestureStartedInCanvasRef.current) {
+        preventCapturedGesture(event);
+      }
+
+      if (activeTouchPointerIdsRef.current.size < 2) {
+        activeTouchGestureRef.current = false;
+        lastPinchDistanceRef.current = null;
+        lastPinchCenterRef.current = null;
+      }
+
+      if (activeTouchPointerIdsRef.current.size === 0) {
+        clearTouchGestureState();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        clearTouchGestureState();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      clearTouchGestureState();
+    };
+
+    document.addEventListener('touchstart', handleTouchStartCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('touchmove', handleTouchMoveCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('touchend', handleTouchEndCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('touchcancel', handleTouchCancelCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('pointerdown', handlePointerDownCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('pointermove', handlePointerMoveCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('pointerup', handlePointerReleaseCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('pointercancel', handlePointerReleaseCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('lostpointercapture', handlePointerReleaseCapture, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener('gesturestart', handleGestureCapture, {
+      capture: true,
+      passive: false,
+    } as AddEventListenerOptions);
+    document.addEventListener('gesturechange', handleGestureCapture, {
+      capture: true,
+      passive: false,
+    } as AddEventListenerOptions);
+    document.addEventListener('gestureend', handleGestureCapture, {
+      capture: true,
+      passive: false,
+    } as AddEventListenerOptions);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStartCapture, true);
+      document.removeEventListener('touchmove', handleTouchMoveCapture, true);
+      document.removeEventListener('touchend', handleTouchEndCapture, true);
+      document.removeEventListener('touchcancel', handleTouchCancelCapture, true);
+      document.removeEventListener('pointerdown', handlePointerDownCapture, true);
+      document.removeEventListener('pointermove', handlePointerMoveCapture, true);
+      document.removeEventListener('pointerup', handlePointerReleaseCapture, true);
+      document.removeEventListener('pointercancel', handlePointerReleaseCapture, true);
+      document.removeEventListener('lostpointercapture', handlePointerReleaseCapture, true);
+      document.removeEventListener('gesturestart', handleGestureCapture, true);
+      document.removeEventListener('gesturechange', handleGestureCapture, true);
+      document.removeEventListener('gestureend', handleGestureCapture, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, []);
 
   useEffect(() => {
     if (cropState) return undefined;
@@ -926,6 +1347,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
   function handleCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
+    if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     if (editingTextItemId) finishTextEditing();
     if (cropState) return;
 
@@ -981,6 +1403,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   function handleItemPointerDown(event: React.PointerEvent<HTMLDivElement>, item: CanvasItem) {
     event.stopPropagation();
     if (event.button !== 0) return;
+    if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     if (cropState) return;
     if (editingTextItemId && editingTextItemId !== item.id) finishTextEditing();
 
@@ -1003,6 +1426,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     item: CanvasItem,
     handle: ResizeHandle
   ) {
+    if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     event.stopPropagation();
     interactionRef.current = {
       type: 'resize',
@@ -1024,6 +1448,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     item: CanvasItem,
     endpointIndex: 0 | 1
   ) {
+    if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     event.stopPropagation();
     const [firstPoint, secondPoint] = [
       {
@@ -1049,6 +1474,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
   function handleCropMovePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!cropState || !cropTargetItem) return;
+    if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     event.stopPropagation();
     interactionRef.current = {
       type: 'crop-move',
@@ -1067,6 +1493,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     handle: ResizeHandle
   ) {
     if (!cropState || !cropTargetItem) return;
+    if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     event.stopPropagation();
     interactionRef.current = {
       type: 'crop-resize',
@@ -1618,7 +2045,11 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   }, []);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100">
+    <div
+      className={`ai-vision-workspace flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100 ${
+        isCanvasGestureLocked ? 'ai-vision-gesture-lock' : ''
+      }`}
+    >
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           className="flex items-center border-b border-white/[0.06] bg-[#0d1118]/95 px-4"
@@ -1660,6 +2091,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
           cropState={cropState}
           editingTextItemId={editingTextItemId}
           editingTextValue={editingTextValue}
+          canvasRootRef={canvasRootRef}
           canvasViewportRef={canvasViewportRef}
           imageInputRef={imageInputRef}
           videoInputRef={videoInputRef}

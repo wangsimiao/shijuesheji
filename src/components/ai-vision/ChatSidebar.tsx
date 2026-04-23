@@ -74,7 +74,7 @@ function HistoryMenu({
 }: Pick<ChatSidebarProps, 'sessions' | 'currentSessionId' | 'onSwitchSession' | 'onCreateSession'>) {
   return (
     <MenuPanel>
-      <div className={`max-h-72 space-y-1 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
+      <div className={`ai-vision-chat-menu-scroll max-h-72 space-y-1 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
         {sessions.map((session) => (
           <button
             key={session.id}
@@ -114,7 +114,7 @@ function BrandMenu({
   return (
     <MenuPanel>
       {brandTemplates.length > 0 ? (
-        <div className={`max-h-64 space-y-2 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
+        <div className={`ai-vision-chat-menu-scroll max-h-64 space-y-2 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
           {brandTemplates.map((template) => (
             <button
               key={template.id}
@@ -194,7 +194,7 @@ export default function ChatSidebar({
 
   return (
     <aside
-      className={`relative h-full shrink-0 bg-transparent transition-[width] duration-300 ease-out ${
+      className={`ai-vision-chat-sidebar relative h-full shrink-0 bg-transparent transition-[width] duration-300 ease-out ${
         isCollapsed ? 'w-0 overflow-visible' : 'w-[420px] overflow-hidden'
       }`}
     >
@@ -266,7 +266,7 @@ export default function ChatSidebar({
 
           <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-[#191c23] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}>
+              <div className={`ai-vision-chat-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}>
                 {currentSession?.messages.length ? (
                   <div className="space-y-5">
                     {currentSession.messages.map((message) => {
