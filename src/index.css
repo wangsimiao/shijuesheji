@@ -34,7 +34,9 @@ body.ai-vision-workspace-active #root {
 }
 
 .ai-vision-canvas-viewport {
+  -ms-touch-action: none;
   touch-action: none;
+  -ms-scroll-chaining: none;
   overscroll-behavior: none;
 }
 
@@ -44,7 +46,9 @@ body.ai-vision-workspace-active #root {
 
 .ai-vision-chat-scroll,
 .ai-vision-chat-menu-scroll {
+  -ms-touch-action: pan-y;
   touch-action: pan-y;
+  -ms-scroll-chaining: chained;
   overscroll-behavior: contain;
 }
 

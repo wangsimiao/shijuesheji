@@ -401,9 +401,22 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     document.documentElement.classList.add('ai-vision-workspace-active');
     document.body.classList.add('ai-vision-workspace-active');
 
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    const previousViewportContent = viewportMeta?.getAttribute('content') || null;
+    viewportMeta?.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no'
+    );
+
     return () => {
       document.documentElement.classList.remove('ai-vision-workspace-active');
       document.body.classList.remove('ai-vision-workspace-active');
+      if (viewportMeta) {
+        viewportMeta.setAttribute(
+          'content',
+          previousViewportContent || 'width=device-width, initial-scale=1.0'
+        );
+      }
     };
   }, []);
 
@@ -488,14 +501,23 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       event.stopPropagation();
     };
 
+    const preventDefaultOnly = (event: Event) => {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+    };
+
     const handleTouchStartCapture = (event: TouchEvent) => {
       if (nativeGestureDriverRef.current === 'pointer') return;
       const canvas = canvasRootRef.current;
       if (!canvas) return;
 
+      let hasCanvasTouchStart = false;
+
       for (const touch of Array.from(event.changedTouches)) {
         if (isTouchInsideContainer(touch, canvas)) {
           activeTouchIdsRef.current.add(touch.identifier);
+          hasCanvasTouchStart = true;
         }
       }
 
@@ -503,6 +525,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       const hasCanvasOwnedTouch = currentTouches.some((touch) =>
         activeTouchIdsRef.current.has(touch.identifier)
       );
+
+       if (hasCanvasTouchStart || hasCanvasOwnedTouch) {
+        preventDefaultOnly(event);
+      }
 
       if (!activeTouchGestureRef.current && currentTouches.length >= 2 && hasCanvasOwnedTouch) {
         const [firstTouch, secondTouch] = currentTouches;
@@ -523,6 +549,9 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
     const handleTouchMoveCapture = (event: TouchEvent) => {
       if (nativeGestureDriverRef.current === 'pointer') return;
+      if (activeTouchIdsRef.current.size > 0) {
+        preventDefaultOnly(event);
+      }
       if (!gestureStartedInCanvasRef.current) return;
 
       if (!activeTouchGestureRef.current || event.touches.length < 2) {
@@ -565,6 +594,9 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
     const handleTouchEndCapture = (event: TouchEvent) => {
       if (nativeGestureDriverRef.current === 'pointer') return;
+      if (activeTouchIdsRef.current.size > 0 || gestureStartedInCanvasRef.current) {
+        preventDefaultOnly(event);
+      }
       for (const touch of Array.from(event.changedTouches)) {
         activeTouchIdsRef.current.delete(touch.identifier);
       }
@@ -629,6 +661,8 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
       if (!shouldOwnPointer) return;
 
+      preventDefaultOnly(event);
+
       activeTouchPointerIdsRef.current.add(event.pointerId);
       touchPointerPositionsRef.current.set(event.pointerId, {
         clientX: event.clientX,
@@ -663,6 +697,8 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     const handlePointerMoveCapture = (event: PointerEvent) => {
       if (event.pointerType !== 'touch' || nativeGestureDriverRef.current === 'touch') return;
       if (!activeTouchPointerIdsRef.current.has(event.pointerId)) return;
+
+      preventDefaultOnly(event);
 
       touchPointerPositionsRef.current.set(event.pointerId, {
         clientX: event.clientX,
@@ -709,6 +745,8 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     const handlePointerReleaseCapture = (event: PointerEvent) => {
       if (event.pointerType !== 'touch' || nativeGestureDriverRef.current === 'touch') return;
       if (!activeTouchPointerIdsRef.current.has(event.pointerId) && !gestureStartedInCanvasRef.current) return;
+
+      preventDefaultOnly(event);
 
       activeTouchPointerIdsRef.current.delete(event.pointerId);
       touchPointerPositionsRef.current.delete(event.pointerId);
