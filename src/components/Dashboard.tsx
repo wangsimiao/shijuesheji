@@ -37,6 +37,11 @@ const MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
   { route: 'admin', label: '模型设置' },
 ];
 
+const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
+  { route: 'design', label: 'AI 设计' },
+  { route: 'admin', label: '模型设置' },
+];
+
 const AI_VISION_IMAGE_MODEL_OPTIONS = [
   { value: OPENROUTER_GPT_IMAGE_MODEL, label: 'GPT 5.4 Image 2' },
   { value: DOUBAO_5_IMAGE_MODEL, label: '豆包 5.0' },
@@ -311,22 +316,33 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   };
 
   const renderDesignContent = () => (
-    <div className="h-full overflow-y-auto bg-[#0d0f15] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.05)_1px,transparent_0)] [background-size:22px_22px]">
-      <div className="mx-auto max-w-[1600px]">
+    <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
+      <div className="mx-auto max-w-[1560px]">
+        <section className="relative mb-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] p-8 shadow-[0_28px_80px_rgba(0,0,0,0.35)]">
+          <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-indigo-500/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-28 left-24 h-64 w-64 rounded-full bg-cyan-500/20 blur-3xl" />
+          <div className="relative">
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">AI Design Workspace</p>
+            <h2 className="mt-3 text-[34px] font-semibold tracking-[0.01em] text-white">众唯 AI 设计</h2>
+            <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
+              直接从这里继续你的画板创作。选择项目即可进入画布，所有会话、素材与版本都会被保留。
+            </p>
+          </div>
+        </section>
         {isProjectsLoading ? (
           <Placeholder title="正在加载项目" description="正在从本地项目库读取 AI 设计项目..." />
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <button
               type="button"
               onClick={() => {
                 void handleCreateProject();
               }}
-              className="group flex aspect-[1.03] flex-col rounded-[24px] border border-white/[0.06] bg-[#181a21] p-5 text-left shadow-[0_18px_44px_rgba(0,0,0,0.26)] transition hover:border-white/[0.12] hover:bg-[#1c1f27]"
+              className="group flex aspect-[0.9] flex-col rounded-[20px] border border-white/[0.08] bg-[#161a24] p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1b2030]"
             >
-              <div className="flex flex-1 items-center justify-center rounded-[18px] bg-[#111216] text-slate-400 transition group-hover:text-slate-200">
-                <div className="flex flex-col items-center gap-6">
-                  <Plus className="h-14 w-14 stroke-[1.5]" />
+              <div className="flex flex-1 items-center justify-center rounded-[14px] bg-[#0d111a] text-slate-400 transition group-hover:text-slate-100">
+                <div className="flex flex-col items-center gap-3">
+                  <Plus className="h-10 w-10 stroke-[1.6]" />
                   <div className="text-[18px] font-semibold text-slate-200">新的画板</div>
                 </div>
               </div>
@@ -335,26 +351,26 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
             {projects.map((project) => (
               <article
                 key={project.id}
-                className="group relative flex aspect-[1.03] flex-col overflow-hidden rounded-[24px] border border-white/[0.06] bg-[#181a21] p-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)] transition hover:border-white/[0.12] hover:bg-[#1c1f27]"
+                className="group relative flex aspect-[0.9] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1a1f2d]"
               >
                 <button
                   type="button"
                   onClick={() => onOpenProject(project)}
                   className="flex min-h-0 flex-1 flex-col text-left"
                 >
-                  <div className="aspect-[1.48] overflow-hidden rounded-[18px] border border-white/[0.05] bg-[#101116]">
+                  <div className="aspect-[1.44] overflow-hidden rounded-[14px] border border-white/[0.05] bg-[#101116]">
                     <ProjectPreview project={project} />
                   </div>
 
-                  <div className="min-h-0 flex-1 px-1 pt-4">
-                    <h3 className="line-clamp-2 text-[15px] font-semibold leading-7 text-white">
+                  <div className="min-h-0 flex-1 px-1 pt-3">
+                    <h3 className="line-clamp-2 text-[14px] font-semibold leading-6 text-white">
                       {project.name || '未命名画板'}
                     </h3>
                   </div>
                 </button>
 
-                <div className="mt-3 flex items-center justify-between gap-3 px-1">
-                  <div className="truncate text-[12px] tracking-[0.02em] text-slate-400">
+                <div className="mt-1 flex items-center justify-between gap-2 px-1">
+                  <div className="truncate text-[11px] tracking-[0.01em] text-slate-400">
                     {formatProjectTimestamp(project.updatedAt)}
                   </div>
 
@@ -617,10 +633,13 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
   return (
     <div className="flex h-screen bg-[#0b1220] text-slate-100">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-white/10 bg-[#0f172a] p-4">
-        <h1 className="mb-4 text-lg font-semibold text-white">电商 AI</h1>
+      <aside className="flex w-52 shrink-0 flex-col border-r border-white/10 bg-[#0f172a] p-3">
+        <div className="mb-3 flex items-center gap-2.5 px-1">
+          <img src="/zhongwei-logo.svg" alt="众唯 logo" className="h-8 w-8 rounded-[9px]" />
+          <h1 className="text-base font-semibold tracking-[0.01em] text-white">众唯</h1>
+        </div>
         <div className="space-y-1">
-          {MENU_ITEMS.map((item) => (
+          {NAV_MENU_ITEMS.map((item) => (
             <button
               key={item.route}
               type="button"

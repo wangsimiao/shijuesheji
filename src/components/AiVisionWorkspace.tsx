@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { addBrandTemplateHydrated, getBrandTemplatesHydrated, saveProject } from '../store';
+import {
+  addBrandTemplateHydrated,
+  getBrandSpecs,
+  getBrandTemplatesHydrated,
+  saveProject,
+  upsertBrandSpec,
+} from '../store';
 import {
   chatWithAI,
   generateImageAI,
@@ -9,6 +15,7 @@ import {
   isImageModelConfigured,
 } from '../services/ai';
 import type {
+  BrandSpec,
   BrandTemplate,
   CanvasCrop,
   CanvasItem,
@@ -315,6 +322,8 @@ export default function AiVisionWorkspace({
   const [chatInput, setChatInput] = useState('');
   const [chatInputImages, setChatInputImages] = useState<ChatInputImage[]>([]);
   const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
+  const [brandSpecs, setBrandSpecs] = useState<BrandSpec[]>([]);
+  const [activeBrandSpecId, setActiveBrandSpecId] = useState<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [sceneBySessionId, setSceneBySessionId] = useState<Record<string, SceneTab>>(
     initialSnapshot.sceneBySessionId
@@ -325,6 +334,7 @@ export default function AiVisionWorkspace({
   const [linePreviewItem, setLinePreviewItem] = useState<CanvasItem | null>(null);
   const [selectedImageModel, setSelectedImageModel] = useState(initialSnapshot.selectedImageModel);
   const [isHistoryMenuOpen, setIsHistoryMenuOpen] = useState(false);
+  const [isBrandSpecMenuOpen, setIsBrandSpecMenuOpen] = useState(false);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
   const [canvasHover, setCanvasHover] = useState(false);
@@ -345,7 +355,9 @@ export default function AiVisionWorkspace({
   const chatUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brandTemplateInputRef = useRef<HTMLInputElement | null>(null);
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
+  const brandSpecMenuRef = useRef<HTMLDivElement | null>(null);
   const brandMenuRef = useRef<HTMLDivElement | null>(null);
+  const lastBrandSpecInjectionRef = useRef<{ brandSpecId: string; chatInputSnapshot: string } | null>(null);
   const hasManualBoardNameEditRef = useRef(false);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
@@ -441,6 +453,11 @@ export default function AiVisionWorkspace({
         setBrandTemplates(templates);
       }
     });
+    const specs = getBrandSpecs();
+    if (!cancelled) {
+      setBrandSpecs(specs);
+      setActiveBrandSpecId(specs[0]?.id || null);
+    }
     return () => {
       cancelled = true;
     };
@@ -915,6 +932,9 @@ export default function AiVisionWorkspace({
       if (historyMenuRef.current && target && !historyMenuRef.current.contains(target)) {
         setIsHistoryMenuOpen(false);
       }
+      if (brandSpecMenuRef.current && target && !brandSpecMenuRef.current.contains(target)) {
+        setIsBrandSpecMenuOpen(false);
+      }
       if (brandMenuRef.current && target && !brandMenuRef.current.contains(target)) {
         setIsBrandMenuOpen(false);
       }
@@ -1155,6 +1175,63 @@ export default function AiVisionWorkspace({
       ...previous,
       [currentSession.id]: scene,
     }));
+  }
+
+  function handleSetChatInput(value: string) {
+    lastBrandSpecInjectionRef.current = null;
+    setChatInput(value);
+  }
+
+  function handleSelectBrandSpec(brandSpecId: string) {
+    const spec = brandSpecs.find((item) => item.id === brandSpecId);
+    if (!spec) return;
+    setActiveBrandSpecId(spec.id);
+    setIsBrandSpecMenuOpen(false);
+    setChatInput((previous) => {
+      const nextValue = previous.trim().length > 0 ? `${previous}\n\n${spec.specText}` : spec.specText;
+      const lastInjection = lastBrandSpecInjectionRef.current;
+      if (
+        lastInjection &&
+        lastInjection.brandSpecId === spec.id &&
+        lastInjection.chatInputSnapshot === previous
+      ) {
+        return previous;
+      }
+      lastBrandSpecInjectionRef.current = {
+        brandSpecId: spec.id,
+        chatInputSnapshot: nextValue,
+      };
+      return nextValue;
+    });
+  }
+
+  async function handleSaveBrandSpec(brandSpecId: string, specText: string) {
+    const existing = brandSpecs.find((item) => item.id === brandSpecId);
+    if (!existing) return;
+    const nextSpec = upsertBrandSpec(existing.brandName, specText);
+    setBrandSpecs((previous) =>
+      previous.map((item) => (item.id === existing.id ? nextSpec : item))
+    );
+    setActiveBrandSpecId(nextSpec.id);
+    setStatusNotice('品牌规范已保存。');
+  }
+
+  async function handleCreateBrandSpec(brandName: string) {
+    const trimmed = brandName.trim();
+    if (!trimmed) {
+      setStatusNotice('请先输入品牌名。');
+      return;
+    }
+    const nextSpec = upsertBrandSpec(trimmed, '');
+    setBrandSpecs((previous) => {
+      const existingIndex = previous.findIndex((item) => item.id === nextSpec.id);
+      if (existingIndex >= 0) {
+        return previous.map((item) => (item.id === nextSpec.id ? nextSpec : item));
+      }
+      return [nextSpec, ...previous];
+    });
+    setActiveBrandSpecId(nextSpec.id);
+    setStatusNotice(`已新增品牌规范：${trimmed}`);
   }
 
   async function handleSelectBrandTemplate(template: BrandTemplate) {
@@ -2213,29 +2290,43 @@ export default function AiVisionWorkspace({
         isChatLoading={isChatLoading}
         isCollapsed={isChatSidebarCollapsed}
         isHistoryMenuOpen={isHistoryMenuOpen}
+        isBrandSpecMenuOpen={isBrandSpecMenuOpen}
         isBrandMenuOpen={isBrandMenuOpen}
         storageWarning={storageWarning}
         isModelConfigured={isSelectedImageModelConfigured}
         modelConfigurationMessage={selectedImageModelConfigurationMessage}
         headerHeight={WORKSPACE_HEADER_HEIGHT}
         historyMenuRef={historyMenuRef}
+        brandSpecMenuRef={brandSpecMenuRef}
         brandMenuRef={brandMenuRef}
         chatUploadInputRef={chatUploadInputRef}
         brandTemplateInputRef={brandTemplateInputRef}
+        brandSpecs={brandSpecs}
+        activeBrandSpecId={activeBrandSpecId}
         onToggleCollapsed={() => setIsChatSidebarCollapsed((previous) => !previous)}
         onToggleHistoryMenu={() => setIsHistoryMenuOpen((previous) => !previous)}
-        onToggleBrandMenu={() => setIsBrandMenuOpen((previous) => !previous)}
+        onToggleBrandSpecMenu={() => {
+          setIsBrandMenuOpen(false);
+          setIsBrandSpecMenuOpen((previous) => !previous);
+        }}
+        onToggleBrandMenu={() => {
+          setIsBrandSpecMenuOpen(false);
+          setIsBrandMenuOpen((previous) => !previous);
+        }}
         onCreateSession={handleCreateSession}
         onSwitchSession={(sessionId) => {
           setCurrentSessionId(sessionId);
           setIsHistoryMenuOpen(false);
         }}
         onSelectScene={handleSelectScene}
-        onSetChatInput={setChatInput}
+        onSetChatInput={handleSetChatInput}
         onRemoveChatImage={(imageId) =>
           setChatInputImages((previous) => previous.filter((item) => item.id !== imageId))
         }
         onSelectModel={setSelectedImageModel}
+        onSelectBrandSpec={handleSelectBrandSpec}
+        onSaveBrandSpec={handleSaveBrandSpec}
+        onCreateBrandSpec={handleCreateBrandSpec}
         onSelectBrandTemplate={handleSelectBrandTemplate}
         onUploadBrandTemplate={async (file) => {
           try {

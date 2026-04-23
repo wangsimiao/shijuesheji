@@ -63,7 +63,14 @@ export interface BrandTemplate {
   image: string;
 }
 
-export type AiVisionSceneTab = 'general' | 'main_image' | 'detail_image' | 'buyer_show' | 'sku';
+export interface BrandSpec {
+  id: string;
+  brandName: string;
+  specText: string;
+  updatedAt: number;
+}
+
+export type AiVisionSceneTab = 'general' | 'main_image' | 'detail_image' | 'buyer_show';
 
 export type ProductMonitorCycle = 'daily' | 'weekly' | 'monthly';
 

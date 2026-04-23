@@ -7,3 +7,5 @@ coverage/
 .tmp_openlovart_ref/
 .env*
 !.env.example
+
+.vercel

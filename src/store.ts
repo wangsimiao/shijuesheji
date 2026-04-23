@@ -6,6 +6,7 @@ import {
   parseLegacyWorkspaceSnapshot,
 } from './components/ai-vision/workspace-model';
 import {
+  BrandSpec,
   BrandTemplate,
   ModelProviderSettings,
   ModelSettings,
@@ -22,6 +23,7 @@ const PROJECTS_DB_NAME = 'ecommerce_ai_projects_db';
 const PROJECTS_STORE_NAME = 'projects';
 const PROJECTS_LS_MIGRATION_KEY = 'ecommerce_ai_projects_idb_migrated_v1';
 const BRAND_TEMPLATES_KEY = 'ecommerce_ai_brand_templates';
+const BRAND_SPECS_KEY = 'ecommerce_ai_brand_specs';
 const MODEL_SETTINGS_KEY = 'ecommerce_ai_model_settings';
 const OPEN_LOVART_PROJECTS_KEY = 'ecommerce_ai_openlovart_projects';
 const PRODUCT_MONITOR_CONFIG_KEY = 'ecommerce_ai_product_monitor_config';
@@ -78,6 +80,29 @@ const DEFAULT_MONITOR_CONFIG_BASE: Omit<ProductMonitorConfig, 'updatedAt'> = {
   weekDay: 1,
   monthDay: 1,
 };
+
+const ZICHEN_DEFAULT_SPEC = `【梓晨品牌AI生图·固定版式】
+尺寸：1200px宽度
+风格：柔软治愈、纯净安心、母婴级、软美学、明亮居家
+主色：#FFDC39柠檬黄，白/浅灰/黑
+字体：梦源黑体CN，圆润干净
+辅助图形：Z形拥抱曲线
+圆角规范：大模块右上左下80px，小模块四角40px
+间距规范：模块间距80px，内边距20px/75px，图文间距100px
+
+【主图版式】
+1. LOGO：左上角60px，ZTION梓晨横版
+2. 标题：顶部偏左距顶270px，660×200px
+3. 产品：画面正中960×680px
+4. 卖点：产品下方320×520px
+5. 打标：顶部通栏1080×180px
+布局严谨、居中对齐、无杂乱、品牌统一
+
+【详情页ABC版式】
+A类(20–50%)：首屏温馨家居场景大图
+B类(30%)：分栏卖点卡片，圆角模块
+C类(20–50%)：产品细节参数网格展示
+顺序：A→B→C，节奏清晰，不重复超过3次`;
 
 let projectsDbPromise: Promise<IDBDatabase> | null = null;
 let projectStorageReadyPromise: Promise<void> | null = null;
@@ -372,6 +397,81 @@ export async function addBrandTemplateHydrated(
   templates.unshift(template);
   persist(BRAND_TEMPLATES_KEY, templates);
   return template;
+}
+
+function createDefaultBrandSpecs(): BrandSpec[] {
+  return [
+    {
+      id: 'brand-zichen',
+      brandName: '梓晨',
+      specText: ZICHEN_DEFAULT_SPEC,
+      updatedAt: Date.now(),
+    },
+  ];
+}
+
+function normalizeBrandSpecs(input: unknown): BrandSpec[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const candidate = item as Partial<BrandSpec>;
+      const brandName = typeof candidate.brandName === 'string' ? candidate.brandName.trim() : '';
+      const specText = typeof candidate.specText === 'string' ? candidate.specText : '';
+      if (!brandName) return null;
+      return {
+        id:
+          typeof candidate.id === 'string' && candidate.id.trim()
+            ? candidate.id.trim()
+            : uuidv4(),
+        brandName,
+        specText,
+        updatedAt:
+          typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
+            ? candidate.updatedAt
+            : Date.now(),
+      } satisfies BrandSpec;
+    })
+    .filter((item): item is BrandSpec => Boolean(item));
+}
+
+export function getBrandSpecs(): BrandSpec[] {
+  const parsed = safeJsonParse<BrandSpec[] | null>(localStorage.getItem(BRAND_SPECS_KEY), null);
+  const normalized = normalizeBrandSpecs(parsed);
+  if (normalized.length > 0) return normalized;
+  const defaults = createDefaultBrandSpecs();
+  persist(BRAND_SPECS_KEY, defaults);
+  return defaults;
+}
+
+export function saveBrandSpecs(specs: BrandSpec[]) {
+  const normalized = normalizeBrandSpecs(specs);
+  persist(BRAND_SPECS_KEY, normalized.length > 0 ? normalized : createDefaultBrandSpecs());
+}
+
+export function upsertBrandSpec(brandName: string, specText: string): BrandSpec {
+  const trimmedName = brandName.trim();
+  if (!trimmedName) {
+    throw new Error('品牌名称不能为空');
+  }
+  const trimmedSpecText = specText.trim();
+  const list = getBrandSpecs();
+  const existingIndex = list.findIndex(
+    (item) => item.brandName.trim().toLowerCase() === trimmedName.toLowerCase()
+  );
+  const nextItem: BrandSpec = {
+    id: existingIndex >= 0 ? list[existingIndex].id : uuidv4(),
+    brandName: trimmedName,
+    specText: trimmedSpecText,
+    updatedAt: Date.now(),
+  };
+  if (existingIndex >= 0) {
+    list[existingIndex] = nextItem;
+  } else {
+    list.unshift(nextItem);
+  }
+  saveBrandSpecs(list);
+  return nextItem;
 }
 
 export function createDefaultModelSettings(): ModelSettings {

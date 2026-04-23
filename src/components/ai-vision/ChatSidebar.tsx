@@ -1,4 +1,4 @@
-import React, { RefObject } from 'react';
+import React, { RefObject, useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
   ChevronLeft,
@@ -10,13 +10,12 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { BrandTemplate, ChatInputImage, ChatSession } from '../../types';
+import type { BrandSpec, BrandTemplate, ChatInputImage, ChatSession } from '../../types';
 import {
   CHAT_IMAGE_LIMIT,
   DOUBAO_5_IMAGE_MODEL,
   IMAGE_MODEL_OPTIONS,
   OPENROUTER_GPT_IMAGE_MODEL,
-  SCENE_TAB_OPTIONS,
   SceneTab,
   WORKSPACE_HEADER_HEIGHT,
 } from './workspace-model';
@@ -33,21 +32,26 @@ interface ChatSidebarProps {
   chatInput: string;
   chatInputImages: ChatInputImage[];
   brandTemplates: BrandTemplate[];
+  brandSpecs: BrandSpec[];
+  activeBrandSpecId: string | null;
   selectedImageModel: string;
   isChatLoading: boolean;
   isCollapsed: boolean;
   isHistoryMenuOpen: boolean;
+  isBrandSpecMenuOpen: boolean;
   isBrandMenuOpen: boolean;
   storageWarning: string | null;
   isModelConfigured: boolean;
   modelConfigurationMessage: string | null;
   headerHeight?: number;
   historyMenuRef: RefObject<HTMLDivElement | null>;
+  brandSpecMenuRef: RefObject<HTMLDivElement | null>;
   brandMenuRef: RefObject<HTMLDivElement | null>;
   chatUploadInputRef: RefObject<HTMLInputElement | null>;
   brandTemplateInputRef: RefObject<HTMLInputElement | null>;
   onToggleCollapsed: () => void;
   onToggleHistoryMenu: () => void;
+  onToggleBrandSpecMenu: () => void;
   onToggleBrandMenu: () => void;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
@@ -55,6 +59,9 @@ interface ChatSidebarProps {
   onSetChatInput: (value: string) => void;
   onRemoveChatImage: (imageId: string) => void;
   onSelectModel: (modelId: string) => void;
+  onSelectBrandSpec: (brandSpecId: string) => void;
+  onSaveBrandSpec: (brandSpecId: string, specText: string) => Promise<void>;
+  onCreateBrandSpec: (brandName: string) => Promise<void>;
   onSelectBrandTemplate: (template: BrandTemplate) => Promise<void>;
   onUploadBrandTemplate: (file: File) => Promise<void>;
   onUploadReferenceImage: (file: File) => Promise<void>;
@@ -70,7 +77,7 @@ function MenuPanel({ children }: { children: React.ReactNode }) {
 }
 
 function getDisplayModelLabel(value: string, fallbackLabel: string) {
-  if (value === OPENROUTER_GPT_IMAGE_MODEL) return 'GPT 5.4 Image 2';
+  if (value === OPENROUTER_GPT_IMAGE_MODEL) return 'gpt2';
   if (value === DOUBAO_5_IMAGE_MODEL) return '豆包 5.0';
   return fallbackLabel;
 }
@@ -163,37 +170,138 @@ function BrandMenu({
   );
 }
 
+function BrandSpecMenu({
+  brandSpecs,
+  activeBrandSpecId,
+  onSelectBrandSpec,
+  onSaveBrandSpec,
+  onCreateBrandSpec,
+}: Pick<
+  ChatSidebarProps,
+  'brandSpecs' | 'activeBrandSpecId' | 'onSelectBrandSpec' | 'onSaveBrandSpec' | 'onCreateBrandSpec'
+>) {
+  const [selectedBrandSpecId, setSelectedBrandSpecId] = useState<string>(activeBrandSpecId || '');
+  const [specTextDraft, setSpecTextDraft] = useState('');
+  const [newBrandName, setNewBrandName] = useState('');
+
+  useEffect(() => {
+    if (!brandSpecs.length) return;
+    const nextId = activeBrandSpecId && brandSpecs.some((item) => item.id === activeBrandSpecId)
+      ? activeBrandSpecId
+      : brandSpecs[0].id;
+    setSelectedBrandSpecId(nextId);
+  }, [activeBrandSpecId, brandSpecs]);
+
+  const selectedBrandSpec = useMemo(
+    () => brandSpecs.find((item) => item.id === selectedBrandSpecId) || null,
+    [brandSpecs, selectedBrandSpecId]
+  );
+
+  useEffect(() => {
+    setSpecTextDraft(selectedBrandSpec?.specText || '');
+  }, [selectedBrandSpec]);
+
+  return (
+    <MenuPanel>
+      <div className="space-y-2">
+        <select
+          value={selectedBrandSpecId}
+          onChange={(event) => {
+            const nextId = event.target.value;
+            setSelectedBrandSpecId(nextId);
+            onSelectBrandSpec(nextId);
+          }}
+          className="h-9 w-full rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 text-[12px] text-white outline-none"
+        >
+          {brandSpecs.map((spec) => (
+            <option key={spec.id} value={spec.id}>
+              {spec.brandName}
+            </option>
+          ))}
+        </select>
+
+        <textarea
+          value={specTextDraft}
+          onChange={(event) => setSpecTextDraft(event.target.value)}
+          rows={8}
+          placeholder="维护当前品牌规范..."
+          className="w-full resize-none rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 py-2 text-[12px] leading-5 text-white outline-none placeholder:text-slate-500"
+        />
+
+        <button
+          type="button"
+          disabled={!selectedBrandSpec}
+          onClick={() => {
+            if (!selectedBrandSpec) return;
+            void onSaveBrandSpec(selectedBrandSpec.id, specTextDraft);
+          }}
+          className="inline-flex h-9 w-full items-center justify-center rounded-[12px] bg-white/[0.08] text-[12px] text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          保存规范
+        </button>
+      </div>
+
+      <div className="mt-2.5 flex items-center gap-2">
+        <input
+          value={newBrandName}
+          onChange={(event) => setNewBrandName(event.target.value)}
+          placeholder="新增品牌名"
+          className="h-9 flex-1 rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 text-[12px] text-white outline-none placeholder:text-slate-500"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const nextName = newBrandName.trim();
+            if (!nextName) return;
+            void onCreateBrandSpec(nextName);
+            setNewBrandName('');
+          }}
+          className="inline-flex h-9 items-center justify-center rounded-[12px] bg-white/[0.08] px-3 text-[12px] text-white transition hover:bg-white/[0.12]"
+        >
+          新增
+        </button>
+      </div>
+    </MenuPanel>
+  );
+}
+
 export default function ChatSidebar({
   projectTitle,
   currentSession,
   sessions,
   currentSessionId,
-  currentScene,
   chatInput,
   chatInputImages,
   brandTemplates,
+  brandSpecs,
+  activeBrandSpecId,
   selectedImageModel,
   isChatLoading,
   isCollapsed,
   isHistoryMenuOpen,
+  isBrandSpecMenuOpen,
   isBrandMenuOpen,
   storageWarning,
   isModelConfigured,
   modelConfigurationMessage,
   headerHeight = WORKSPACE_HEADER_HEIGHT,
   historyMenuRef,
+  brandSpecMenuRef,
   brandMenuRef,
   chatUploadInputRef,
   brandTemplateInputRef,
   onToggleCollapsed,
   onToggleHistoryMenu,
+  onToggleBrandSpecMenu,
   onToggleBrandMenu,
   onCreateSession,
   onSwitchSession,
-  onSelectScene,
   onSetChatInput,
   onRemoveChatImage,
   onSelectModel,
+  onSelectBrandSpec,
+  onSaveBrandSpec,
+  onCreateBrandSpec,
   onSelectBrandTemplate,
   onUploadBrandTemplate,
   onUploadReferenceImage,
@@ -272,7 +380,7 @@ export default function ChatSidebar({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-[#191c23] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className={`ai-vision-chat-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}>
                 {currentSession?.messages.length ? (
                   <div className="space-y-5">
@@ -345,23 +453,6 @@ export default function ChatSidebar({
               </div>
 
               <div className="px-2.5 pb-2.5">
-                <div className="flex flex-wrap gap-1 px-1 pb-0">
-                  {SCENE_TAB_OPTIONS.map((tab) => (
-                    <button
-                      key={tab.value}
-                      type="button"
-                      onClick={() => onSelectScene(tab.value)}
-                      className={`rounded-[16px] px-3 py-1.5 text-[11px] transition ${
-                        currentScene === tab.value
-                          ? 'bg-[#2e3b53] text-white'
-                          : 'bg-[#1d2129] text-slate-300 hover:bg-[#232832]'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
                 <div className="mt-0 rounded-[24px] bg-[#1d2129] px-2.5 pb-2.5 pt-2">
                   <div className={`flex items-center gap-1.5 overflow-x-auto px-0.5 pb-1 ${HIDDEN_SCROLLBAR}`}>
                     {chatInputImages.map((item) => (
@@ -423,7 +514,7 @@ export default function ChatSidebar({
                     <select
                       value={selectedImageModel}
                       onChange={(event) => onSelectModel(event.target.value)}
-                      className="h-9 w-[172px] rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-white outline-none"
+                      className="h-9 w-[82px] rounded-[12px] border border-white/[0.04] bg-[#151920] px-2 text-[12px] text-white outline-none"
                     >
                       {IMAGE_MODEL_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -431,6 +522,31 @@ export default function ChatSidebar({
                         </option>
                       ))}
                     </select>
+
+                    <div ref={brandSpecMenuRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={onToggleBrandSpecMenu}
+                        className="inline-flex h-9 items-center gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-slate-200 transition hover:bg-[#1a1f28]"
+                      >
+                        品牌规范
+                        <ChevronDown
+                          className={`h-3 w-3 transition ${isBrandSpecMenuOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+
+                      {isBrandSpecMenuOpen ? (
+                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[320px]">
+                          <BrandSpecMenu
+                            brandSpecs={brandSpecs}
+                            activeBrandSpecId={activeBrandSpecId}
+                            onSelectBrandSpec={onSelectBrandSpec}
+                            onSaveBrandSpec={onSaveBrandSpec}
+                            onCreateBrandSpec={onCreateBrandSpec}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
 
                     <div ref={brandMenuRef} className="relative">
                       <button
@@ -462,14 +578,14 @@ export default function ChatSidebar({
                         onClick={() => {
                           void onSendMessage();
                         }}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-[14px] bg-[#33435f] px-4 text-[13px] font-medium text-white transition hover:bg-[#3b4d6d] disabled:cursor-not-allowed disabled:opacity-45"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#33435f] text-white transition hover:bg-[#3b4d6d] disabled:cursor-not-allowed disabled:opacity-45"
+                        aria-label="发送"
                       >
                         {isChatLoading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Send className="h-4 w-4" />
                         )}
-                        发送
                       </button>
                     </div>
                   </div>

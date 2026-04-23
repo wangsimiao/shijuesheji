@@ -219,7 +219,6 @@ export const SCENE_TAB_OPTIONS: SceneTabOption[] = [
   { value: 'main_image', label: '主图' },
   { value: 'detail_image', label: '详情' },
   { value: 'buyer_show', label: '买家秀' },
-  { value: 'sku', label: 'SKU' },
 ];
 
 export function createEmptySession(): ChatSession {
@@ -232,12 +231,7 @@ export function createEmptySession(): ChatSession {
 }
 
 export function normalizeSceneTab(value: unknown): SceneTab {
-  if (
-    value === 'main_image' ||
-    value === 'detail_image' ||
-    value === 'buyer_show' ||
-    value === 'sku'
-  ) {
+  if (value === 'main_image' || value === 'detail_image' || value === 'buyer_show') {
     return value;
   }
   return DEFAULT_SCENE_TAB;

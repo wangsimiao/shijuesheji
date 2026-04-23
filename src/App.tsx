@@ -12,7 +12,7 @@ import { AppRoute, Project } from './types';
 const DEFAULT_PROJECT_NAME = 'AI 设计项目';
 
 export default function App() {
-  const [currentRoute, setCurrentRoute] = useState<AppRoute>('home');
+  const [currentRoute, setCurrentRoute] = useState<AppRoute>('design');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [isProjectLoading, setIsProjectLoading] = useState(false);
