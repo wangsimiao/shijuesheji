@@ -256,7 +256,7 @@ function CropOverlay({
   const rect = cropState.rect || DEFAULT_CROP_RECT;
 
   return (
-    <div className="absolute inset-0 z-20 overflow-hidden rounded-[22px]">
+    <div className="absolute inset-0 z-20 overflow-hidden">
       <div className="absolute inset-0 bg-black/40" />
       <div
         onPointerDown={onMovePointerDown}
@@ -387,6 +387,7 @@ export default function CanvasStage({
             const isSelected = selectedItemId === item.id;
             const isTextEditing = editingTextItemId === item.id;
             const imageStyle = item.type === 'image' ? getRenderedImageStyle(item.crop) : null;
+            const usesRoundedFrame = item.type !== 'text' && item.type !== 'image';
             const resizeHandles =
               item.type === 'image' || item.type === 'video'
                 ? CORNER_RESIZE_HANDLES
@@ -408,12 +409,10 @@ export default function CanvasStage({
                 }}
               >
                 <div
-                  className={`relative h-full w-full overflow-visible ${
-                    item.type === 'text' ? '' : 'rounded-[22px]'
-                  }`}
+                  className={`relative h-full w-full overflow-visible ${usesRoundedFrame ? 'rounded-[22px]' : ''}`}
                 >
                   {item.type === 'image' ? (
-                    <div className="relative h-full w-full overflow-hidden rounded-[22px] bg-[#0f1319]">
+                    <div className="relative h-full w-full overflow-hidden bg-[#0f1319]">
                       <img
                         src={item.content}
                         alt={item.prompt || 'canvas item'}
@@ -530,7 +529,9 @@ export default function CanvasStage({
                   {isSelected && item.type !== 'line' ? (
                     <>
                       <div
-                        className={`pointer-events-none absolute inset-0 rounded-[22px] border ${
+                        className={`pointer-events-none absolute inset-0 border ${
+                          item.type === 'image' || item.type === 'text' ? '' : 'rounded-[22px]'
+                        } ${
                           item.type === 'text'
                             ? 'border-[#8ea4c7]/80'
                             : 'border-[#7b90b3] shadow-[0_0_0_1px_rgba(123,144,179,0.3)]'

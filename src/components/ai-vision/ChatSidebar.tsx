@@ -271,11 +271,34 @@ export default function ChatSidebar({
                   <div className="space-y-5">
                     {currentSession.messages.map((message) => {
                       const isUser = message.role === 'user';
+                      const hasUserText = message.content.trim().length > 0;
+                      const attachedImages = message.attachedImages || [];
                       return (
                         <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                           {isUser ? (
-                            <div className="max-w-[84%] overflow-hidden rounded-[20px] rounded-br-[10px] bg-[#2a2f39] px-4 py-3 text-[13px] leading-6 text-slate-50">
-                              <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                            <div className="flex max-w-[84%] flex-col items-end gap-2">
+                              {hasUserText ? (
+                                <div className="overflow-hidden rounded-[20px] rounded-br-[10px] bg-[#2a2f39] px-4 py-3 text-[13px] leading-6 text-slate-50">
+                                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                                </div>
+                              ) : null}
+
+                              {attachedImages.length ? (
+                                <div
+                                  className={`grid gap-2 ${
+                                    attachedImages.length === 1 ? 'w-[168px] grid-cols-1' : 'w-[236px] grid-cols-2'
+                                  }`}
+                                >
+                                  {attachedImages.map((imageSrc, index) => (
+                                    <img
+                                      key={`${message.id}-attachment-${index}`}
+                                      src={imageSrc}
+                                      alt={`user attachment ${index + 1}`}
+                                      className="block aspect-square w-full rounded-[14px] object-cover shadow-[0_12px_24px_rgba(0,0,0,0.2)]"
+                                    />
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="w-full text-[13px] leading-7 text-slate-100">
