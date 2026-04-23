@@ -1,8 +1,15 @@
-export type ItemType = 'image' | 'video' | 'text' | 'drawing' | 'shape' | 'loading';
+export type ItemType = 'image' | 'video' | 'text' | 'drawing' | 'shape' | 'line' | 'loading';
 
 export interface CanvasPoint {
   x: number;
   y: number;
+}
+
+export interface CanvasCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface CanvasItem {
@@ -20,6 +27,12 @@ export interface CanvasItem {
   strokeColor?: string;
   strokeWidth?: number;
   shapeType?: 'rect';
+  fillColor?: string;
+  crop?: CanvasCrop;
+  fontSize?: number;
+  fontWeight?: number;
+  color?: string;
+  textAlign?: 'left' | 'center' | 'right';
 }
 
 export interface ChatMessage {
@@ -50,7 +63,7 @@ export interface BrandTemplate {
   image: string;
 }
 
-export type AiVisionSceneTab = 'general' | 'main_image' | 'detail_image' | 'buyer_show';
+export type AiVisionSceneTab = 'general' | 'main_image' | 'detail_image' | 'buyer_show' | 'sku';
 
 export type ProductMonitorCycle = 'daily' | 'weekly' | 'monthly';
 

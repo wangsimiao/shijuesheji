@@ -5,6 +5,7 @@ import { addBrandTemplateHydrated, getBrandTemplatesHydrated, saveProject } from
 import { chatWithAI, generateImageAI, isDoubaoConfigured } from '../services/ai';
 import type {
   BrandTemplate,
+  CanvasCrop,
   CanvasItem,
   CanvasPoint,
   ChatInputImage,
@@ -20,10 +21,20 @@ import {
   CANVAS_WHEEL_LOCK_MS,
   CANVAS_ZOOM_STEP,
   CHAT_IMAGE_LIMIT,
+  CropAspect,
   CropState,
   DEFAULT_BOARD_NAME,
+  DEFAULT_CROP_RECT,
   DEFAULT_IMAGE_MODEL_OPTION,
+  DEFAULT_LINE_COLOR,
   DEFAULT_SCENE_TAB,
+  DEFAULT_SHAPE_FILL,
+  DEFAULT_SHAPE_STROKE,
+  DEFAULT_SHAPE_STROKE_WIDTH,
+  DEFAULT_TEXT_ALIGN,
+  DEFAULT_TEXT_COLOR,
+  DEFAULT_TEXT_FONT_SIZE,
+  DEFAULT_TEXT_FONT_WEIGHT,
   DEFAULT_VIEW,
   DEFAULT_VIEWPORT,
   DRAW_STROKE_WIDTH,
@@ -31,20 +42,26 @@ import {
   InteractionState,
   MAX_SCALE,
   MIN_SCALE,
-  MediaDimensions,
+  ResizeHandle,
   SceneTab,
+  ToolMode,
   ViewportSize,
+  WORKSPACE_HEADER_HEIGHT,
   buildProjectFromWorkspace,
   buildSceneAwarePrompt,
   buildDrawingFrame,
   clamp,
   createAvoidOverlapPosition,
   createEmptySession,
+  createInitialCropState,
+  createLineItem,
   createWorkspaceSnapshotFromProject,
   cropImageSource,
   downloadAsset,
   fitIntoBounds,
+  getAspectRatio,
   getClientToWorldPoint,
+  getCommittedCrop,
   getCropRect,
   getDefaultSceneBySessionId,
   getDisplayFilename,
@@ -52,7 +69,11 @@ import {
   isEditableTarget,
   loadImageDimensions,
   loadVideoDimensions,
+  measureTextItemBox,
+  moveCropRect,
   readFileAsDataUrl,
+  resizeCropRect,
+  updateLineEndpoint,
 } from './ai-vision/workspace-model';
 
 interface AiVisionWorkspaceProps {
@@ -81,6 +102,100 @@ function deriveProjectNameFromPrompt(prompt: string) {
   return normalized.slice(0, 18) || DEFAULT_BOARD_NAME;
 }
 
+function isFullCrop(crop: CanvasCrop | undefined) {
+  if (!crop) return true;
+  return (
+    Math.abs(crop.x) < 0.0001 &&
+    Math.abs(crop.y) < 0.0001 &&
+    Math.abs(crop.width - 1) < 0.0001 &&
+    Math.abs(crop.height - 1) < 0.0001
+  );
+}
+
+function getInitialTextBox() {
+  const measured = measureTextItemBox('输入文字', {
+    fontSize: DEFAULT_TEXT_FONT_SIZE,
+    fontWeight: DEFAULT_TEXT_FONT_WEIGHT,
+  });
+  return {
+    width: measured.width,
+    height: measured.height,
+  };
+}
+
+function fitCropRectToAspect(rect: CanvasCrop, aspect: CropAspect): CanvasCrop {
+  if (aspect === 'freeform') return rect;
+  const ratio = getAspectRatio(aspect);
+  if (!ratio) return rect;
+
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  let width = rect.width;
+  let height = rect.height;
+
+  if (width / Math.max(height, 0.0001) > ratio) {
+    width = height * ratio;
+  } else {
+    height = width / ratio;
+  }
+
+  const boundedWidth = Math.min(width, centerX * 2, (1 - centerX) * 2);
+  const boundedHeight = Math.min(height, centerY * 2, (1 - centerY) * 2);
+  let nextWidth = boundedWidth;
+  let nextHeight = boundedWidth / ratio;
+
+  if (nextHeight > boundedHeight) {
+    nextHeight = boundedHeight;
+    nextWidth = nextHeight * ratio;
+  }
+
+  return {
+    x: centerX - nextWidth / 2,
+    y: centerY - nextHeight / 2,
+    width: nextWidth,
+    height: nextHeight,
+  };
+}
+
+function getItemResizeMinimum(item: CanvasItem) {
+  if (item.type === 'text') return { width: 96, height: 40 };
+  if (item.type === 'line') return { width: 2, height: 2 };
+  return { width: 20, height: 20 };
+}
+
+function resizeItem(item: CanvasItem, handle: ResizeHandle, deltaX: number, deltaY: number) {
+  const min = getItemResizeMinimum(item);
+  let nextX = item.x;
+  let nextY = item.y;
+  let nextWidth = item.width;
+  let nextHeight = item.height;
+
+  if (handle.includes('w')) {
+    const candidateX = Math.min(item.x + deltaX, item.x + item.width - min.width);
+    nextWidth = item.x + item.width - candidateX;
+    nextX = candidateX;
+  }
+  if (handle.includes('e')) {
+    nextWidth = Math.max(min.width, item.width + deltaX);
+  }
+  if (handle.includes('n')) {
+    const candidateY = Math.min(item.y + deltaY, item.y + item.height - min.height);
+    nextHeight = item.y + item.height - candidateY;
+    nextY = candidateY;
+  }
+  if (handle.includes('s')) {
+    nextHeight = Math.max(min.height, item.height + deltaY);
+  }
+
+  return {
+    ...item,
+    x: nextX,
+    y: nextY,
+    width: nextWidth,
+    height: nextHeight,
+  };
+}
+
 export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
@@ -89,7 +204,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const [sessions, setSessions] = useState<ChatSession[]>(initialSnapshot.sessions);
   const [currentSessionId, setCurrentSessionId] = useState(initialSnapshot.currentSessionId);
   const [view, setView] = useState<ViewState>(initialSnapshot.view);
-  const [tool, setTool] = useState<'select' | 'draw' | 'text' | 'shape'>('select');
+  const [tool, setTool] = useState<ToolMode>('select');
   const [chatInput, setChatInput] = useState('');
   const [chatInputImages, setChatInputImages] = useState<ChatInputImage[]>([]);
   const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
@@ -99,8 +214,8 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   );
   const [actionPopover, setActionPopover] = useState<ActionPopoverState | null>(null);
   const [cropState, setCropState] = useState<CropState | null>(null);
-  const [cropPreviewSize, setCropPreviewSize] = useState<MediaDimensions | null>(null);
   const [drawPreviewPoints, setDrawPreviewPoints] = useState<CanvasPoint[] | null>(null);
+  const [linePreviewItem, setLinePreviewItem] = useState<CanvasItem | null>(null);
   const [selectedImageModel, setSelectedImageModel] = useState(initialSnapshot.selectedImageModel);
   const [isHistoryMenuOpen, setIsHistoryMenuOpen] = useState(false);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
@@ -110,10 +225,13 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportSize>(DEFAULT_VIEWPORT);
+  const [editingTextItemId, setEditingTextItemId] = useState<string | null>(null);
+  const [editingTextValue, setEditingTextValue] = useState('');
+  const [replaceTargetItemId, setReplaceTargetItemId] = useState<string | null>(null);
 
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
-  const cropPanelRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const replaceImageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const chatUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brandTemplateInputRef = useRef<HTMLInputElement | null>(null);
@@ -308,10 +426,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     : null;
   const selectedImageItem = selectedItem?.type === 'image' ? selectedItem : null;
 
-  const selectedImageToolbarPosition = selectedImageItem
+  const selectedItemToolbarPosition = selectedItem
     ? {
-        left: view.x + (selectedImageItem.x + selectedImageItem.width / 2) * view.scale,
-        top: view.y + selectedImageItem.y * view.scale - 18,
+        left: view.x + (selectedItem.x + selectedItem.width / 2) * view.scale,
+        top: view.y + selectedItem.y * view.scale - 18,
       }
     : null;
 
@@ -321,121 +439,23 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       : null;
 
   useEffect(() => {
-    if (!cropTargetItem) {
-      setCropPreviewSize(null);
-      return;
-    }
-
-    let canceled = false;
-    loadImageDimensions(cropTargetItem.content)
-      .then((size) => {
-        if (!canceled) setCropPreviewSize(size);
-      })
-      .catch(() => {
-        if (!canceled) setCropPreviewSize({ width: 1024, height: 1024 });
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, [cropTargetItem]);
-
-  useEffect(() => {
     if (!actionPopover) return;
     const exists = items.some((item) => item.id === actionPopover.itemId && item.type === 'image');
     if (!exists) setActionPopover(null);
   }, [actionPopover, items]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setActionPopover(null);
-        setCropState(null);
-        if (tool !== 'select') setTool('select');
-        return;
-      }
-
-      if (isEditableTarget(event.target)) return;
-
-      if ((event.key === 'Backspace' || event.key === 'Delete') && selectedItemId) {
-        event.preventDefault();
-        setItems((previous) => previous.filter((item) => item.id !== selectedItemId));
-        setView((previous) => ({ ...previous, selectedItemIds: [] }));
-        setActionPopover(null);
-        if (cropState?.itemId === selectedItemId) {
-          setCropState(null);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cropState?.itemId, selectedItemId, tool]);
+    if (!cropState) return;
+    const exists = items.some((item) => item.id === cropState.itemId && item.type === 'image');
+    if (!exists) setCropState(null);
+  }, [cropState, items]);
 
   useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const currentInteraction = interactionRef.current;
-      const canvas = canvasViewportRef.current;
-      if (!currentInteraction || !canvas) return;
-
-      if (currentInteraction.type === 'pan') {
-        setView((previous) => ({
-          ...previous,
-          x: currentInteraction.originX + (event.clientX - currentInteraction.startClientX),
-          y: currentInteraction.originY + (event.clientY - currentInteraction.startClientY),
-        }));
-        return;
-      }
-
-      if (currentInteraction.type === 'drag') {
-        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
-        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === currentInteraction.itemId
-              ? {
-                  ...item,
-                  x: currentInteraction.originX + deltaX,
-                  y: currentInteraction.originY + deltaY,
-                }
-              : item
-          )
-        );
-        return;
-      }
-
-      const rect = canvas.getBoundingClientRect();
-      const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
-      const lastPoint = currentInteraction.points[currentInteraction.points.length - 1];
-      if (!lastPoint || Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 1.5) {
-        return;
-      }
-      currentInteraction.points = [...currentInteraction.points, point];
-      setDrawPreviewPoints(currentInteraction.points);
-    };
-
-    const handlePointerUp = () => {
-      const currentInteraction = interactionRef.current;
-      if (!currentInteraction) return;
-
-      if (currentInteraction.type === 'draw') {
-        const drawing = buildDrawingFrame(currentInteraction.points, DRAW_STROKE_WIDTH);
-        if (drawing) {
-          setItems((previous) => [...previous, drawing]);
-        }
-      }
-
-      interactionRef.current = null;
-      setDrawPreviewPoints(null);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, []);
+    if (editingTextItemId && !items.some((item) => item.id === editingTextItemId)) {
+      setEditingTextItemId(null);
+      setEditingTextValue('');
+    }
+  }, [editingTextItemId, items]);
 
   function setSingleSelection(itemId: string | null) {
     setView((previous) => ({
@@ -569,6 +589,13 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     );
   }
 
+  async function exportImageSource(item: CanvasItem) {
+    if (item.type !== 'image' || !item.crop) return item.content;
+    const natural = await loadImageDimensions(item.content).catch(() => ({ width: 1024, height: 1024 }));
+    const rect = getCropRect(natural.width, natural.height, item.crop);
+    return cropImageSource(item.content, rect, item.mimeType || 'image/png');
+  }
+
   async function addChatReferenceImage(
     data: string,
     name?: string,
@@ -626,7 +653,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     setBrandTemplates((previous) => [template, ...previous.filter((item) => item.id !== template.id)]);
     await addChatReferenceImage(template.image, template.name, 'brand');
     setIsBrandMenuOpen(false);
-    setStatusNotice('品牌模板已加入输入框。');
+    setStatusNotice('品牌模板已加入输入区。');
   }
 
   async function handleUploadReferenceImage(file: File) {
@@ -675,6 +702,34 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     }
   }
 
+  async function replaceSelectedImageFile(file: File) {
+    const targetId = replaceTargetItemId || selectedImageItem?.id;
+    if (!targetId) return;
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setItems((previous) =>
+        previous.map((item) =>
+          item.id === targetId && item.type === 'image'
+            ? {
+                ...item,
+                content: dataUrl,
+                prompt: file.name.replace(/\.[^.]+$/, ''),
+                mimeType: file.type || 'image/png',
+                sourceKind: 'uploaded',
+                crop: undefined,
+              }
+            : item
+        )
+      );
+      setStatusNotice('图片已替换。');
+    } catch (error) {
+      setStatusNotice(getErrorMessage(error));
+    } finally {
+      setReplaceTargetItemId(null);
+    }
+  }
+
   async function importVideoFiles(files: FileList | null) {
     if (!files?.length) return;
 
@@ -712,19 +767,34 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     }
   }
 
+  function startTextEditing(item: CanvasItem) {
+    if (item.type !== 'text') return;
+    setSingleSelection(item.id);
+    setEditingTextItemId(item.id);
+    setEditingTextValue(item.content);
+    setCropState(null);
+  }
+
   function createTextItem(point: CanvasPoint) {
+    const box = getInitialTextBox();
     const item: CanvasItem = {
       id: uuidv4(),
       type: 'text',
       x: point.x,
       y: point.y,
-      width: 240,
-      height: 84,
-      content: '双击编辑文字',
+      width: box.width,
+      height: box.height,
+      content: '',
       mimeType: 'text/plain',
+      fontSize: DEFAULT_TEXT_FONT_SIZE,
+      fontWeight: DEFAULT_TEXT_FONT_WEIGHT,
+      color: DEFAULT_TEXT_COLOR,
+      textAlign: DEFAULT_TEXT_ALIGN,
     };
     setItems((previous) => [...previous, item]);
     setSingleSelection(item.id);
+    setEditingTextItemId(item.id);
+    setEditingTextValue('');
   }
 
   function createShapeItem(point: CanvasPoint) {
@@ -737,6 +807,9 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       height: 140,
       content: '矩形',
       shapeType: 'rect',
+      fillColor: DEFAULT_SHAPE_FILL,
+      strokeColor: DEFAULT_SHAPE_STROKE,
+      strokeWidth: DEFAULT_SHAPE_STROKE_WIDTH,
     };
     setItems((previous) => [...previous, item]);
     setSingleSelection(item.id);
@@ -767,8 +840,51 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     return item.id;
   }
 
+  function finishTextEditing() {
+    if (!editingTextItemId) return;
+    const item = itemsRef.current.find((current) => current.id === editingTextItemId && current.type === 'text');
+    if (!item) {
+      setEditingTextItemId(null);
+      setEditingTextValue('');
+      return;
+    }
+
+    const nextContent = editingTextValue.trim();
+    if (!nextContent) {
+      setItems((previous) => previous.filter((current) => current.id !== editingTextItemId));
+      if (selectedItemId === editingTextItemId) {
+        setSingleSelection(null);
+      }
+      setEditingTextItemId(null);
+      setEditingTextValue('');
+      return;
+    }
+
+    const measured = measureTextItemBox(nextContent, {
+      fontSize: item.fontSize,
+      fontWeight: item.fontWeight,
+    });
+
+    setItems((previous) =>
+      previous.map((current) =>
+        current.id === editingTextItemId
+          ? {
+              ...current,
+              content: nextContent,
+              width: measured.width,
+              height: measured.height,
+            }
+          : current
+      )
+    );
+    setEditingTextItemId(null);
+    setEditingTextValue('');
+  }
+
   function handleCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
+    if (editingTextItemId) finishTextEditing();
+    if (cropState) return;
 
     const canvas = canvasViewportRef.current;
     if (!canvas) return;
@@ -781,6 +897,17 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         points: [point],
       };
       setDrawPreviewPoints([point]);
+      setSingleSelection(null);
+      return;
+    }
+
+    if (tool === 'line') {
+      interactionRef.current = {
+        type: 'line-create',
+        startPoint: point,
+        currentPoint: point,
+      };
+      setLinePreviewItem(createLineItem(point, point));
       setSingleSelection(null);
       return;
     }
@@ -798,6 +925,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     }
 
     setSingleSelection(null);
+    setActionPopover(null);
     interactionRef.current = {
       type: 'pan',
       startClientX: event.clientX,
@@ -810,6 +938,8 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   function handleItemPointerDown(event: React.PointerEvent<HTMLDivElement>, item: CanvasItem) {
     event.stopPropagation();
     if (event.button !== 0) return;
+    if (cropState) return;
+    if (editingTextItemId && editingTextItemId !== item.id) finishTextEditing();
 
     setSingleSelection(item.id);
     if (tool !== 'select') return;
@@ -822,6 +952,90 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       originX: item.x,
       originY: item.y,
       scale: viewRef.current.scale,
+    };
+  }
+
+  function handleResizeHandlePointerDown(
+    event: React.PointerEvent<HTMLButtonElement>,
+    item: CanvasItem,
+    handle: ResizeHandle
+  ) {
+    event.stopPropagation();
+    interactionRef.current = {
+      type: 'resize',
+      itemId: item.id,
+      handle,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      originX: item.x,
+      originY: item.y,
+      originWidth: item.width,
+      originHeight: item.height,
+      scale: viewRef.current.scale,
+      ...getItemResizeMinimum(item),
+    };
+  }
+
+  function handleLineEndpointPointerDown(
+    event: React.PointerEvent<HTMLButtonElement>,
+    item: CanvasItem,
+    endpointIndex: 0 | 1
+  ) {
+    event.stopPropagation();
+    const [firstPoint, secondPoint] = [
+      {
+        x: item.x + (item.points?.[0]?.x ?? 0),
+        y: item.y + (item.points?.[0]?.y ?? 0),
+      },
+      {
+        x: item.x + (item.points?.[1]?.x ?? item.width),
+        y: item.y + (item.points?.[1]?.y ?? item.height),
+      },
+    ] as [CanvasPoint, CanvasPoint];
+
+    interactionRef.current = {
+      type: 'line-endpoint',
+      itemId: item.id,
+      endpointIndex,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      scale: viewRef.current.scale,
+      startPoints: [firstPoint, secondPoint],
+    };
+  }
+
+  function handleCropMovePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (!cropState || !cropTargetItem) return;
+    event.stopPropagation();
+    interactionRef.current = {
+      type: 'crop-move',
+      itemId: cropState.itemId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startRect: cropState.rect,
+      itemWidth: cropTargetItem.width,
+      itemHeight: cropTargetItem.height,
+      scale: viewRef.current.scale,
+    };
+  }
+
+  function handleCropHandlePointerDown(
+    event: React.PointerEvent<HTMLButtonElement>,
+    handle: ResizeHandle
+  ) {
+    if (!cropState || !cropTargetItem) return;
+    event.stopPropagation();
+    interactionRef.current = {
+      type: 'crop-resize',
+      itemId: cropState.itemId,
+      handle,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startRect: cropState.rect,
+      itemWidth: cropTargetItem.width,
+      itemHeight: cropTargetItem.height,
+      scale: viewRef.current.scale,
+      aspect: cropState.aspect,
     };
   }
 
@@ -850,42 +1064,61 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
   function handleItemDoubleClick(item: CanvasItem) {
     if (item.type !== 'text') return;
-    const next = window.prompt('编辑文字', item.content);
-    if (typeof next !== 'string') return;
+    startTextEditing(item);
+  }
+
+  function handleUpdateSelectedItem(updates: Partial<CanvasItem>) {
+    if (!selectedItemId) return;
     setItems((previous) =>
-      previous.map((current) =>
-        current.id === item.id
+      previous.map((item) =>
+        item.id === selectedItemId
           ? {
-              ...current,
-              content: next || '双击编辑文字',
+              ...item,
+              ...updates,
             }
-          : current
+          : item
       )
     );
   }
 
-  function handleCopySelectedImage() {
-    if (!selectedImageItem) return;
+  function handleCopySelectedItem() {
+    if (!selectedItem) return;
+    if (editingTextItemId) finishTextEditing();
 
     const nextItem: CanvasItem = {
-      ...selectedImageItem,
+      ...selectedItem,
       id: uuidv4(),
-      x: selectedImageItem.x + 32,
-      y: selectedImageItem.y + 32,
+      x: selectedItem.x + 32,
+      y: selectedItem.y + 32,
     };
     setItems((previous) => [...previous, nextItem]);
     setSingleSelection(nextItem.id);
-    setStatusNotice('已复制图片。');
+    setStatusNotice('元素已复制。');
+  }
+
+  function handleDeleteSelectedItem() {
+    if (!selectedItemId) return;
+    setItems((previous) => previous.filter((item) => item.id !== selectedItemId));
+    setSingleSelection(null);
+    if (editingTextItemId === selectedItemId) {
+      setEditingTextItemId(null);
+      setEditingTextValue('');
+    }
+    if (cropState?.itemId === selectedItemId) {
+      setCropState(null);
+    }
+    setActionPopover(null);
   }
 
   async function handleDownloadSelectedImage() {
     if (!selectedImageItem) return;
     try {
+      const exported = await exportImageSource(selectedImageItem);
       const extension =
         selectedImageItem.mimeType?.includes('jpeg') || selectedImageItem.mimeType?.includes('jpg')
           ? 'jpg'
           : 'png';
-      await downloadAsset(selectedImageItem.content, `${getDisplayFilename(selectedImageItem)}.${extension}`);
+      await downloadAsset(exported, `${getDisplayFilename(selectedImageItem)}.${extension}`);
       setStatusNotice('图片已开始下载。');
     } catch (error) {
       setStatusNotice(getErrorMessage(error));
@@ -902,21 +1135,48 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     });
   }
 
-  function openVideoPopover() {
-    setStatusNotice('缺少视频模型 ID，待补充后启用。');
+  function startCrop() {
+    if (!selectedImageItem) return;
+    if (editingTextItemId) finishTextEditing();
+    setActionPopover(null);
+    setCropState(createInitialCropState(selectedImageItem.id));
   }
 
-  function openCropModal() {
-    if (!selectedImageItem) return;
-    setCropState({
-      itemId: selectedImageItem.id,
-      aspect: 'freeform',
-      freeWidth: 82,
-      freeHeight: 82,
-      uniformSize: 84,
-      offsetX: 50,
-      offsetY: 50,
-      isSubmitting: false,
+  function cancelCrop() {
+    setCropState(null);
+  }
+
+  function confirmCrop() {
+    if (!cropState || !cropTargetItem) return;
+    const committedCrop = getCommittedCrop(cropTargetItem.crop, cropState.rect);
+    const nextCrop = isFullCrop(committedCrop) ? undefined : committedCrop;
+
+    setItems((previous) =>
+      previous.map((item) =>
+        item.id === cropTargetItem.id
+          ? {
+              ...item,
+              x: item.x + item.width * cropState.rect.x,
+              y: item.y + item.height * cropState.rect.y,
+              width: Math.max(32, item.width * cropState.rect.width),
+              height: Math.max(32, item.height * cropState.rect.height),
+              crop: nextCrop,
+            }
+          : item
+      )
+    );
+    setCropState(null);
+    setStatusNotice('图片已裁剪。');
+  }
+
+  function handleSelectCropAspect(aspect: CropAspect) {
+    setCropState((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        aspect,
+        rect: fitCropRectToAspect(previous.rect, aspect),
+      };
     });
   }
 
@@ -936,7 +1196,8 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     setActionPopover((previous) => (previous ? { ...previous, isSubmitting: true } : previous));
 
     try {
-      const nextImage = await generateImageAI(prompt, selectedImageModel, [targetItem.content]);
+      const referenceImage = await exportImageSource(targetItem);
+      const nextImage = await generateImageAI(prompt, selectedImageModel, [referenceImage]);
       setItems((previous) =>
         previous.map((item) =>
           item.id === targetItem.id
@@ -946,6 +1207,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
                 prompt,
                 mimeType: 'image/png',
                 sourceKind: 'generated',
+                crop: undefined,
               }
             : item
         )
@@ -954,43 +1216,6 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       setStatusNotice('图片已重新生成。');
     } catch (error) {
       setActionPopover((previous) => (previous ? { ...previous, isSubmitting: false } : previous));
-      setStatusNotice(getErrorMessage(error));
-    }
-  }
-
-  async function handleVideoSubmit() {
-    setStatusNotice('缺少视频模型 ID，待补充后启用。');
-  }
-
-  async function handleCropConfirm() {
-    if (!cropState || !cropTargetItem || !cropPreviewSize) return;
-
-    setCropState((previous) => (previous ? { ...previous, isSubmitting: true } : previous));
-    try {
-      const rect = getCropRect(cropPreviewSize.width, cropPreviewSize.height, cropState);
-      const dataUrl = await cropImageSource(
-        cropTargetItem.content,
-        rect,
-        cropTargetItem.mimeType || 'image/png'
-      );
-      const fitted = fitIntoBounds(rect.width, rect.height, 560, 560);
-      setItems((previous) =>
-        previous.map((item) =>
-          item.id === cropTargetItem.id
-            ? {
-                ...item,
-                content: dataUrl,
-                width: fitted.width,
-                height: fitted.height,
-                mimeType: cropTargetItem.mimeType || 'image/png',
-              }
-            : item
-        )
-      );
-      setCropState(null);
-      setStatusNotice('图片已裁剪。');
-    } catch (error) {
-      setCropState((previous) => (previous ? { ...previous, isSubmitting: false } : previous));
       setStatusNotice(getErrorMessage(error));
     }
   }
@@ -1093,6 +1318,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
                       prompt,
                       mimeType: 'image/png',
                       sourceKind: 'generated',
+                      crop: undefined,
                     }
                   : item
               )
@@ -1153,21 +1379,208 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     }
   }
 
-  const cropRect = cropState && cropPreviewSize ? getCropRect(cropPreviewSize.width, cropPreviewSize.height, cropState) : null;
-  const cropPreviewFrame =
-    cropRect && cropPreviewSize
-      ? {
-          left: `${(cropRect.left / cropPreviewSize.width) * 100}%`,
-          top: `${(cropRect.top / cropPreviewSize.height) * 100}%`,
-          width: `${(cropRect.width / cropPreviewSize.width) * 100}%`,
-          height: `${(cropRect.height / cropPreviewSize.height) * 100}%`,
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setActionPopover(null);
+        if (cropState) {
+          setCropState(null);
+          return;
         }
-      : null;
+        if (editingTextItemId) {
+          finishTextEditing();
+          return;
+        }
+        if (tool !== 'select') setTool('select');
+        return;
+      }
+
+      if (isEditableTarget(event.target)) return;
+
+      if ((event.key === 'Backspace' || event.key === 'Delete') && selectedItemId) {
+        event.preventDefault();
+        handleDeleteSelectedItem();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cropState, editingTextItemId, selectedItemId, tool]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const currentInteraction = interactionRef.current;
+      const canvas = canvasViewportRef.current;
+      if (!currentInteraction || !canvas) return;
+
+      if (currentInteraction.type === 'pan') {
+        setView((previous) => ({
+          ...previous,
+          x: currentInteraction.originX + (event.clientX - currentInteraction.startClientX),
+          y: currentInteraction.originY + (event.clientY - currentInteraction.startClientY),
+        }));
+        return;
+      }
+
+      if (currentInteraction.type === 'drag') {
+        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
+        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
+        setItems((previous) =>
+          previous.map((item) =>
+            item.id === currentInteraction.itemId
+              ? {
+                  ...item,
+                  x: currentInteraction.originX + deltaX,
+                  y: currentInteraction.originY + deltaY,
+                }
+              : item
+          )
+        );
+        return;
+      }
+
+      if (currentInteraction.type === 'resize') {
+        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
+        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
+        setItems((previous) =>
+          previous.map((item) =>
+            item.id === currentInteraction.itemId
+              ? resizeItem(
+                  {
+                    ...item,
+                    x: currentInteraction.originX,
+                    y: currentInteraction.originY,
+                    width: currentInteraction.originWidth,
+                    height: currentInteraction.originHeight,
+                  },
+                  currentInteraction.handle,
+                  deltaX,
+                  deltaY
+                )
+              : item
+          )
+        );
+        return;
+      }
+
+      if (currentInteraction.type === 'line-endpoint') {
+        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
+        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
+        const startPoint = currentInteraction.startPoints[currentInteraction.endpointIndex];
+        const nextPoint = {
+          x: startPoint.x + deltaX,
+          y: startPoint.y + deltaY,
+        };
+        setItems((previous) =>
+          previous.map((item) =>
+            item.id === currentInteraction.itemId ? updateLineEndpoint(item, currentInteraction.endpointIndex, nextPoint) : item
+          )
+        );
+        return;
+      }
+
+      if (currentInteraction.type === 'crop-move') {
+        const deltaX =
+          (event.clientX - currentInteraction.startClientX) /
+          (currentInteraction.itemWidth * currentInteraction.scale);
+        const deltaY =
+          (event.clientY - currentInteraction.startClientY) /
+          (currentInteraction.itemHeight * currentInteraction.scale);
+        setCropState((previous) =>
+          previous && previous.itemId === currentInteraction.itemId
+            ? {
+                ...previous,
+                rect: moveCropRect(currentInteraction.startRect, deltaX, deltaY),
+              }
+            : previous
+        );
+        return;
+      }
+
+      if (currentInteraction.type === 'crop-resize') {
+        const deltaX =
+          (event.clientX - currentInteraction.startClientX) /
+          (currentInteraction.itemWidth * currentInteraction.scale);
+        const deltaY =
+          (event.clientY - currentInteraction.startClientY) /
+          (currentInteraction.itemHeight * currentInteraction.scale);
+        setCropState((previous) =>
+          previous && previous.itemId === currentInteraction.itemId
+            ? {
+                ...previous,
+                rect: resizeCropRect(
+                  currentInteraction.startRect,
+                  currentInteraction.handle,
+                  deltaX,
+                  deltaY,
+                  currentInteraction.aspect
+                ),
+              }
+            : previous
+        );
+        return;
+      }
+
+      if (currentInteraction.type === 'line-create') {
+        const rect = canvas.getBoundingClientRect();
+        const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
+        currentInteraction.currentPoint = point;
+        setLinePreviewItem(createLineItem(currentInteraction.startPoint, point));
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
+      const lastPoint = currentInteraction.points[currentInteraction.points.length - 1];
+      if (!lastPoint || Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 1.5) {
+        return;
+      }
+      currentInteraction.points = [...currentInteraction.points, point];
+      setDrawPreviewPoints(currentInteraction.points);
+    };
+
+    const handlePointerUp = () => {
+      const currentInteraction = interactionRef.current;
+      if (!currentInteraction) return;
+
+      if (currentInteraction.type === 'draw') {
+        const drawing = buildDrawingFrame(currentInteraction.points, DRAW_STROKE_WIDTH);
+        if (drawing) {
+          setItems((previous) => [...previous, drawing]);
+          setSingleSelection(drawing.id);
+        }
+      }
+
+      if (currentInteraction.type === 'line-create') {
+        const [startPoint, endPoint] = [currentInteraction.startPoint, currentInteraction.currentPoint];
+        if (Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) > 4) {
+          const lineItem = createLineItem(startPoint, endPoint);
+          setItems((previous) => [...previous, { ...lineItem, strokeColor: DEFAULT_LINE_COLOR }]);
+          setSingleSelection(lineItem.id);
+          setTool('select');
+        }
+      }
+
+      interactionRef.current = null;
+      setDrawPreviewPoints(null);
+      setLinePreviewItem(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[62px] items-center border-b border-white/[0.06] bg-[#0d111a]/95 px-4">
+        <header
+          className="flex items-center border-b border-white/[0.06] bg-[#0d1118]/95 px-4"
+          style={{ height: WORKSPACE_HEADER_HEIGHT }}
+        >
           <div className="flex items-center gap-2.5">
             <button
               type="button"
@@ -1184,7 +1597,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
                 hasManualBoardNameEditRef.current = true;
                 setBoardName(event.target.value);
               }}
-              className="w-[210px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-base font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
+              className="w-[240px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-base font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
             />
           </div>
         </header>
@@ -1195,16 +1608,15 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
           setTool={setTool}
           view={view}
           drawPreviewPoints={drawPreviewPoints}
+          linePreviewItem={linePreviewItem}
           selectedItemId={selectedItemId}
-          selectedImageItem={selectedImageItem}
-          selectedImageToolbarPosition={selectedImageToolbarPosition}
+          selectedItem={selectedItem}
+          selectedItemToolbarPosition={selectedItemToolbarPosition}
           actionPopover={actionPopover}
           setActionPopover={setActionPopover}
           cropState={cropState}
-          setCropState={setCropState}
-          cropTargetItem={cropTargetItem}
-          cropPreviewFrame={cropPreviewFrame}
-          cropPanelRef={cropPanelRef}
+          editingTextItemId={editingTextItemId}
+          editingTextValue={editingTextValue}
           canvasViewportRef={canvasViewportRef}
           imageInputRef={imageInputRef}
           videoInputRef={videoInputRef}
@@ -1219,25 +1631,47 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
           onCanvasWheel={handleCanvasWheel}
           onItemPointerDown={handleItemPointerDown}
           onItemDoubleClick={handleItemDoubleClick}
+          onResizeHandlePointerDown={handleResizeHandlePointerDown}
+          onLineEndpointPointerDown={handleLineEndpointPointerDown}
+          onCropMovePointerDown={handleCropMovePointerDown}
+          onCropHandlePointerDown={handleCropHandlePointerDown}
+          onTextEditChange={setEditingTextValue}
+          onTextEditBlur={finishTextEditing}
+          onTextEditKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              finishTextEditing();
+            }
+          }}
+          onStartTextEditing={startTextEditing}
+          onUpdateSelectedItem={handleUpdateSelectedItem}
           onImportImageFiles={importImageFiles}
           onImportVideoFiles={importVideoFiles}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onFitCanvasView={handleFitCanvasView}
-          onCopySelectedImage={handleCopySelectedImage}
+          onCopySelectedItem={handleCopySelectedItem}
+          onDeleteSelectedItem={handleDeleteSelectedItem}
           onDownloadSelectedImage={handleDownloadSelectedImage}
           onOpenRegeneratePopover={openRegeneratePopover}
-          onOpenVideoPopover={openVideoPopover}
-          onOpenCropModal={openCropModal}
+          onOpenReplaceImage={() => {
+            if (!selectedImageItem) return;
+            setReplaceTargetItemId(selectedImageItem.id);
+            replaceImageInputRef.current?.click();
+          }}
+          onStartCrop={startCrop}
+          onCancelCrop={cancelCrop}
+          onConfirmCrop={confirmCrop}
+          onSelectCropAspect={handleSelectCropAspect}
           onRegenerateSubmit={handleRegenerateSubmit}
-          onVideoSubmit={handleVideoSubmit}
-          onCropConfirm={handleCropConfirm}
           onMissingRegenerateConfig={() =>
             setStatusNotice('未配置 VITE_DOUBAO_API_KEY，暂时无法重新生成。')
           }
           onAddSelectedImageToChat={() => {
             if (!selectedImageItem) return;
-            void addChatReferenceImage(selectedImageItem.content, selectedImageItem.prompt || '画布图片');
+            void exportImageSource(selectedImageItem).then((data) =>
+              addChatReferenceImage(data, selectedImageItem.prompt || '画布图片')
+            );
           }}
         />
       </div>
@@ -1258,6 +1692,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         isBrandMenuOpen={isBrandMenuOpen}
         storageWarning={storageWarning}
         isModelConfigured={isDoubaoConfigured()}
+        headerHeight={WORKSPACE_HEADER_HEIGHT}
         historyMenuRef={historyMenuRef}
         brandMenuRef={brandMenuRef}
         chatUploadInputRef={chatUploadInputRef}
@@ -1288,8 +1723,21 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         onSendMessage={handleSendMessage}
       />
 
+      <input
+        ref={replaceImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (!file) return;
+          await replaceSelectedImageFile(file);
+        }}
+      />
+
       {statusNotice ? (
-        <div className="pointer-events-none absolute bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/[0.08] bg-[#171b27]/95 px-4 py-2 text-sm text-slate-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+        <div className="pointer-events-none absolute bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/[0.08] bg-[#171b22]/95 px-4 py-2 text-sm text-slate-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
           {statusNotice}
         </div>
       ) : null}

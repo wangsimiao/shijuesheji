@@ -2,6 +2,7 @@ import type { SyntheticEvent, WheelEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   AiVisionSceneTab,
+  CanvasCrop,
   CanvasItem,
   CanvasPoint,
   ChatSession,
@@ -9,10 +10,11 @@ import type {
   ViewState,
 } from '../../types';
 
-export type ToolMode = 'select' | 'draw' | 'text' | 'shape';
-export type ActionPopoverType = 'regenerate' | 'video';
+export type ToolMode = 'select' | 'draw' | 'line' | 'text' | 'shape';
+export type ActionPopoverType = 'regenerate';
 export type CropAspect = 'freeform' | '1:1' | '4:3' | '16:9';
 export type SceneTab = AiVisionSceneTab;
+export type ResizeHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 
 export type ActionPopoverState = {
   type: ActionPopoverType;
@@ -24,12 +26,7 @@ export type ActionPopoverState = {
 export type CropState = {
   itemId: string;
   aspect: CropAspect;
-  freeWidth: number;
-  freeHeight: number;
-  uniformSize: number;
-  offsetX: number;
-  offsetY: number;
-  isSubmitting: boolean;
+  rect: CanvasCrop;
 };
 
 export type WorkspaceSnapshot = {
@@ -70,7 +67,71 @@ type DrawInteraction = {
   points: CanvasPoint[];
 };
 
-export type InteractionState = PanInteraction | DragInteraction | DrawInteraction | null;
+type LineCreateInteraction = {
+  type: 'line-create';
+  startPoint: CanvasPoint;
+  currentPoint: CanvasPoint;
+};
+
+type ResizeInteraction = {
+  type: 'resize';
+  itemId: string;
+  handle: ResizeHandle;
+  startClientX: number;
+  startClientY: number;
+  originX: number;
+  originY: number;
+  originWidth: number;
+  originHeight: number;
+  scale: number;
+  minWidth: number;
+  minHeight: number;
+};
+
+type LineEndpointInteraction = {
+  type: 'line-endpoint';
+  itemId: string;
+  endpointIndex: 0 | 1;
+  startClientX: number;
+  startClientY: number;
+  scale: number;
+  startPoints: [CanvasPoint, CanvasPoint];
+};
+
+type CropMoveInteraction = {
+  type: 'crop-move';
+  itemId: string;
+  startClientX: number;
+  startClientY: number;
+  startRect: CanvasCrop;
+  itemWidth: number;
+  itemHeight: number;
+  scale: number;
+};
+
+type CropResizeInteraction = {
+  type: 'crop-resize';
+  itemId: string;
+  handle: ResizeHandle;
+  startClientX: number;
+  startClientY: number;
+  startRect: CanvasCrop;
+  itemWidth: number;
+  itemHeight: number;
+  scale: number;
+  aspect: CropAspect;
+};
+
+export type InteractionState =
+  | PanInteraction
+  | DragInteraction
+  | DrawInteraction
+  | LineCreateInteraction
+  | ResizeInteraction
+  | LineEndpointInteraction
+  | CropMoveInteraction
+  | CropResizeInteraction
+  | null;
 
 export type MediaDimensions = {
   width: number;
@@ -95,7 +156,8 @@ export type SceneTabOption = {
 };
 
 export const LEGACY_AI_VISION_STORAGE_KEY = 'ai_visual_workspace_v1';
-export const DEFAULT_BOARD_NAME = 'AI视觉';
+export const DEFAULT_BOARD_NAME = 'AI 视觉';
+export const WORKSPACE_HEADER_HEIGHT = 62;
 export const DEFAULT_VIEW: ViewState = {
   x: 160,
   y: 120,
@@ -110,16 +172,30 @@ export const CHAT_IMAGE_LIMIT = 4;
 export const DEFAULT_SCENE_TAB: SceneTab = 'general';
 export const DRAW_STROKE_COLOR = '#f2f5fb';
 export const DRAW_STROKE_WIDTH = 4;
+export const DEFAULT_LINE_COLOR = '#f2f5fb';
+export const DEFAULT_SHAPE_FILL = '#d8deea';
+export const DEFAULT_SHAPE_STROKE = '#d9dfec';
+export const DEFAULT_SHAPE_STROKE_WIDTH = 2;
+export const DEFAULT_TEXT_COLOR = '#f4f7fb';
+export const DEFAULT_TEXT_FONT_SIZE = 28;
+export const DEFAULT_TEXT_FONT_WEIGHT = 600;
+export const DEFAULT_TEXT_ALIGN: NonNullable<CanvasItem['textAlign']> = 'left';
+export const DEFAULT_CROP_RECT: CanvasCrop = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+};
+export const CROP_MIN_SIZE = 0.1;
 export const FIT_VIEW_PADDING = 120;
 export const MIN_SCALE = 0.35;
 export const MAX_SCALE = 2.4;
 export const CANVAS_WHEEL_LOCK_MS = 220;
 export const CANVAS_ZOOM_STEP = 1.12;
-export const VIDEO_DISABLED_REASON = '缺少视频模型 ID，待补充后启用。';
 export const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
   {
     value: 'doubao-seedream-5-0-260128',
-    label: '豆包5.0',
+    label: '豆包 5.0',
   },
 ];
 export const DEFAULT_IMAGE_MODEL_OPTION = IMAGE_MODEL_OPTIONS[0];
@@ -128,6 +204,7 @@ export const SCENE_TAB_OPTIONS: SceneTabOption[] = [
   { value: 'main_image', label: '主图' },
   { value: 'detail_image', label: '详情' },
   { value: 'buyer_show', label: '买家秀' },
+  { value: 'sku', label: 'SKU' },
 ];
 
 export function createEmptySession(): ChatSession {
@@ -140,7 +217,12 @@ export function createEmptySession(): ChatSession {
 }
 
 export function normalizeSceneTab(value: unknown): SceneTab {
-  if (value === 'main_image' || value === 'detail_image' || value === 'buyer_show') {
+  if (
+    value === 'main_image' ||
+    value === 'detail_image' ||
+    value === 'buyer_show' ||
+    value === 'sku'
+  ) {
     return value;
   }
   return DEFAULT_SCENE_TAB;
@@ -170,6 +252,71 @@ export function normalizeImageModel(value: unknown) {
   return IMAGE_MODEL_OPTIONS.some((option) => option.value === value)
     ? value
     : DEFAULT_IMAGE_MODEL_OPTION.value;
+}
+
+export function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeCrop(candidate: unknown): CanvasCrop | undefined {
+  if (!candidate || typeof candidate !== 'object') return undefined;
+  const crop = candidate as Partial<CanvasCrop>;
+  if (
+    typeof crop.x !== 'number' ||
+    typeof crop.y !== 'number' ||
+    typeof crop.width !== 'number' ||
+    typeof crop.height !== 'number'
+  ) {
+    return undefined;
+  }
+
+  const next: CanvasCrop = {
+    x: clamp(crop.x, 0, 1),
+    y: clamp(crop.y, 0, 1),
+    width: clamp(crop.width, CROP_MIN_SIZE, 1),
+    height: clamp(crop.height, CROP_MIN_SIZE, 1),
+  };
+
+  if (next.x + next.width > 1) {
+    next.width = Math.max(CROP_MIN_SIZE, 1 - next.x);
+  }
+  if (next.y + next.height > 1) {
+    next.height = Math.max(CROP_MIN_SIZE, 1 - next.y);
+  }
+
+  const isFull =
+    Math.abs(next.x) < 0.0001 &&
+    Math.abs(next.y) < 0.0001 &&
+    Math.abs(next.width - 1) < 0.0001 &&
+    Math.abs(next.height - 1) < 0.0001;
+
+  return isFull ? undefined : next;
+}
+
+function normalizePoints(candidate: unknown): CanvasPoint[] | undefined {
+  if (!Array.isArray(candidate)) return undefined;
+  const points = candidate
+    .filter(
+      (point): point is CanvasPoint =>
+        Boolean(point) &&
+        typeof point === 'object' &&
+        typeof (point as CanvasPoint).x === 'number' &&
+        typeof (point as CanvasPoint).y === 'number'
+    )
+    .map((point) => ({ x: point.x, y: point.y }));
+  return points.length ? points : undefined;
+}
+
+function getItemMinWidth(type: CanvasItem['type']) {
+  if (type === 'line') return 2;
+  if (type === 'text') return 96;
+  return 20;
+}
+
+function getItemMinHeight(type: CanvasItem['type']) {
+  if (type === 'line') return 2;
+  if (type === 'text') return 40;
+  return 20;
 }
 
 export function normalizeView(view?: Partial<ViewState> | null): ViewState {
@@ -206,29 +353,22 @@ export function normalizeItem(item: unknown): CanvasItem | null {
   }
 
   const normalizedType = candidate.type as CanvasItem['type'];
-  if (!['image', 'video', 'text', 'drawing', 'shape', 'loading'].includes(normalizedType)) {
+  if (!['image', 'video', 'text', 'drawing', 'shape', 'line', 'loading'].includes(normalizedType)) {
     return null;
   }
 
-  const points = Array.isArray(candidate.points)
-    ? candidate.points
-        .filter(
-          (point): point is CanvasPoint =>
-            Boolean(point) &&
-            typeof point === 'object' &&
-            typeof (point as CanvasPoint).x === 'number' &&
-            typeof (point as CanvasPoint).y === 'number'
-        )
-        .map((point) => ({ x: point.x, y: point.y }))
-    : undefined;
+  const width = Math.max(getItemMinWidth(normalizedType), candidate.width);
+  const height = Math.max(getItemMinHeight(normalizedType), candidate.height);
+  const crop = normalizeCrop(candidate.crop);
+  const points = normalizePoints(candidate.points);
 
   return {
     id: candidate.id,
     type: normalizedType,
     x: candidate.x,
     y: candidate.y,
-    width: Math.max(20, candidate.width),
-    height: Math.max(20, candidate.height),
+    width,
+    height,
     content: candidate.content,
     prompt: typeof candidate.prompt === 'string' ? candidate.prompt : undefined,
     mimeType: typeof candidate.mimeType === 'string' ? candidate.mimeType : undefined,
@@ -237,9 +377,54 @@ export function normalizeItem(item: unknown): CanvasItem | null {
         ? candidate.sourceKind
         : undefined,
     points,
-    strokeColor: typeof candidate.strokeColor === 'string' ? candidate.strokeColor : undefined,
-    strokeWidth: typeof candidate.strokeWidth === 'number' ? candidate.strokeWidth : undefined,
-    shapeType: candidate.shapeType === 'rect' ? 'rect' : undefined,
+    strokeColor:
+      typeof candidate.strokeColor === 'string'
+        ? candidate.strokeColor
+        : normalizedType === 'shape'
+          ? DEFAULT_SHAPE_STROKE
+          : normalizedType === 'line' || normalizedType === 'drawing'
+            ? DEFAULT_LINE_COLOR
+            : undefined,
+    strokeWidth:
+      typeof candidate.strokeWidth === 'number'
+        ? candidate.strokeWidth
+        : normalizedType === 'shape'
+          ? DEFAULT_SHAPE_STROKE_WIDTH
+          : normalizedType === 'line' || normalizedType === 'drawing'
+            ? DRAW_STROKE_WIDTH
+            : undefined,
+    shapeType: candidate.shapeType === 'rect' ? 'rect' : normalizedType === 'shape' ? 'rect' : undefined,
+    fillColor:
+      typeof candidate.fillColor === 'string'
+        ? candidate.fillColor
+        : normalizedType === 'shape'
+          ? DEFAULT_SHAPE_FILL
+          : undefined,
+    crop,
+    fontSize:
+      typeof candidate.fontSize === 'number' && Number.isFinite(candidate.fontSize)
+        ? clamp(candidate.fontSize, 12, 120)
+        : normalizedType === 'text'
+          ? DEFAULT_TEXT_FONT_SIZE
+          : undefined,
+    fontWeight:
+      typeof candidate.fontWeight === 'number' && Number.isFinite(candidate.fontWeight)
+        ? clamp(Math.round(candidate.fontWeight), 400, 800)
+        : normalizedType === 'text'
+          ? DEFAULT_TEXT_FONT_WEIGHT
+          : undefined,
+    color:
+      typeof candidate.color === 'string'
+        ? candidate.color
+        : normalizedType === 'text'
+          ? DEFAULT_TEXT_COLOR
+          : undefined,
+    textAlign:
+      candidate.textAlign === 'left' || candidate.textAlign === 'center' || candidate.textAlign === 'right'
+        ? candidate.textAlign
+        : normalizedType === 'text'
+          ? DEFAULT_TEXT_ALIGN
+          : undefined,
   };
 }
 
@@ -352,10 +537,6 @@ export function buildProjectFromWorkspace(project: Project, snapshot: WorkspaceS
   };
 }
 
-export function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
 export function sanitizeFilename(value: string) {
   return value.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -395,8 +576,6 @@ export function loadVideoDimensions(src: string) {
       video.removeAttribute('src');
       video.load();
     };
-
-    video.preload = 'metadata';
     video.onloadedmetadata = () => {
       const width = video.videoWidth || 1280;
       const height = video.videoHeight || 720;
@@ -506,6 +685,102 @@ export function buildDrawingFrame(points: CanvasPoint[], strokeWidth: number): C
   };
 }
 
+export function createLineItem(startPoint: CanvasPoint, endPoint: CanvasPoint): CanvasItem {
+  const minX = Math.min(startPoint.x, endPoint.x);
+  const minY = Math.min(startPoint.y, endPoint.y);
+  const maxX = Math.max(startPoint.x, endPoint.x);
+  const maxY = Math.max(startPoint.y, endPoint.y);
+
+  return {
+    id: uuidv4(),
+    type: 'line',
+    x: minX,
+    y: minY,
+    width: Math.max(2, maxX - minX),
+    height: Math.max(2, maxY - minY),
+    content: 'line',
+    points: [
+      { x: startPoint.x - minX, y: startPoint.y - minY },
+      { x: endPoint.x - minX, y: endPoint.y - minY },
+    ],
+    strokeColor: DEFAULT_LINE_COLOR,
+    strokeWidth: DRAW_STROKE_WIDTH,
+  };
+}
+
+export function getLineAbsolutePoints(item: CanvasItem): [CanvasPoint, CanvasPoint] {
+  const points = item.points || [
+    { x: 0, y: 0 },
+    { x: item.width, y: item.height },
+  ];
+  const first = points[0] || { x: 0, y: 0 };
+  const second = points[1] || { x: item.width, y: item.height };
+  return [
+    { x: item.x + first.x, y: item.y + first.y },
+    { x: item.x + second.x, y: item.y + second.y },
+  ];
+}
+
+export function updateLineEndpoint(
+  item: CanvasItem,
+  endpointIndex: 0 | 1,
+  nextPoint: CanvasPoint
+): CanvasItem {
+  const [startPoint, endPoint] = getLineAbsolutePoints(item);
+  const absolutePoints: [CanvasPoint, CanvasPoint] =
+    endpointIndex === 0 ? [nextPoint, endPoint] : [startPoint, nextPoint];
+
+  const nextLine = createLineItem(absolutePoints[0], absolutePoints[1]);
+  return {
+    ...item,
+    x: nextLine.x,
+    y: nextLine.y,
+    width: nextLine.width,
+    height: nextLine.height,
+    points: nextLine.points,
+  };
+}
+
+function getLineRows(content: string) {
+  return content.replace(/\r/g, '').split('\n');
+}
+
+export function measureTextItemBox(
+  content: string,
+  options?: Pick<CanvasItem, 'fontSize' | 'fontWeight'>
+) {
+  const fontSize = options?.fontSize || DEFAULT_TEXT_FONT_SIZE;
+  const fontWeight = options?.fontWeight || DEFAULT_TEXT_FONT_WEIGHT;
+  const rows = getLineRows(content || '文字');
+
+  if (typeof document === 'undefined') {
+    return {
+      width: 180,
+      height: Math.max(48, rows.length * Math.round(fontSize * 1.5)),
+    };
+  }
+
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return {
+      width: 180,
+      height: Math.max(48, rows.length * Math.round(fontSize * 1.5)),
+    };
+  }
+
+  context.font = `${fontWeight} ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+  const maxLineWidth = rows.reduce((maxWidth, row) => {
+    const width = context.measureText(row || ' ').width;
+    return Math.max(maxWidth, width);
+  }, 0);
+
+  return {
+    width: clamp(Math.ceil(maxLineWidth + fontSize * 0.8), 120, 420),
+    height: Math.max(48, Math.ceil(rows.length * fontSize * 1.45 + fontSize * 0.3)),
+  };
+}
+
 export function getAspectRatio(aspect: CropAspect) {
   switch (aspect) {
     case '1:1':
@@ -519,42 +794,187 @@ export function getAspectRatio(aspect: CropAspect) {
   }
 }
 
-export function getCropRect(naturalWidth: number, naturalHeight: number, state: CropState): CropRect {
-  if (state.aspect === 'freeform') {
-    const width = Math.max(1, naturalWidth * clamp(state.freeWidth / 100, 0.1, 1));
-    const height = Math.max(1, naturalHeight * clamp(state.freeHeight / 100, 0.1, 1));
-    const maxLeft = Math.max(0, naturalWidth - width);
-    const maxTop = Math.max(0, naturalHeight - height);
+export function getCommittedCrop(baseCrop: CanvasCrop | undefined, localCrop: CanvasCrop): CanvasCrop {
+  const base = baseCrop || DEFAULT_CROP_RECT;
+  return normalizeCrop({
+    x: base.x + localCrop.x * base.width,
+    y: base.y + localCrop.y * base.height,
+    width: base.width * localCrop.width,
+    height: base.height * localCrop.height,
+  }) || DEFAULT_CROP_RECT;
+}
 
-    return {
-      left: maxLeft * (state.offsetX / 100),
-      top: maxTop * (state.offsetY / 100),
-      width,
-      height,
-    };
-  }
-
-  const fixedRatio = getAspectRatio(state.aspect) || 1;
-  let maxWidth = naturalWidth;
-  let maxHeight = naturalWidth / fixedRatio;
-
-  if (maxHeight > naturalHeight) {
-    maxHeight = naturalHeight;
-    maxWidth = maxHeight * fixedRatio;
-  }
-
-  const scale = clamp(state.uniformSize / 100, 0.12, 1);
-  const width = Math.max(1, maxWidth * scale);
-  const height = Math.max(1, maxHeight * scale);
-  const maxLeft = Math.max(0, naturalWidth - width);
-  const maxTop = Math.max(0, naturalHeight - height);
-
+export function getCropRect(
+  naturalWidth: number,
+  naturalHeight: number,
+  crop?: CanvasCrop | null
+): CropRect {
+  const safeCrop = crop || DEFAULT_CROP_RECT;
   return {
-    left: maxLeft * (state.offsetX / 100),
-    top: maxTop * (state.offsetY / 100),
+    left: naturalWidth * safeCrop.x,
+    top: naturalHeight * safeCrop.y,
+    width: naturalWidth * safeCrop.width,
+    height: naturalHeight * safeCrop.height,
+  };
+}
+
+export function getRenderedImageStyle(crop?: CanvasCrop) {
+  const safeCrop = crop || DEFAULT_CROP_RECT;
+  return {
+    width: `${100 / safeCrop.width}%`,
+    height: `${100 / safeCrop.height}%`,
+    left: `${(-safeCrop.x / safeCrop.width) * 100}%`,
+    top: `${(-safeCrop.y / safeCrop.height) * 100}%`,
+  };
+}
+
+export function createInitialCropState(itemId: string): CropState {
+  return {
+    itemId,
+    aspect: 'freeform',
+    rect: { ...DEFAULT_CROP_RECT },
+  };
+}
+
+export function moveCropRect(startRect: CanvasCrop, deltaX: number, deltaY: number) {
+  const next = {
+    ...startRect,
+    x: clamp(startRect.x + deltaX, 0, 1 - startRect.width),
+    y: clamp(startRect.y + deltaY, 0, 1 - startRect.height),
+  };
+  return next;
+}
+
+function fitCropWithinBounds(rect: CanvasCrop, aspectRatio: number, anchorX: number, anchorY: number) {
+  let width = rect.width;
+  let height = rect.height;
+  const horizontalDirection = rect.x >= anchorX ? 1 : -1;
+  const verticalDirection = rect.y >= anchorY ? 1 : -1;
+  const maxWidth = horizontalDirection > 0 ? 1 - anchorX : anchorX;
+  const maxHeight = verticalDirection > 0 ? 1 - anchorY : anchorY;
+
+  width = Math.min(width, maxWidth);
+  height = width / aspectRatio;
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  const x = horizontalDirection > 0 ? anchorX : anchorX - width;
+  const y = verticalDirection > 0 ? anchorY : anchorY - height;
+  return {
+    x,
+    y,
     width,
     height,
   };
+}
+
+export function resizeCropRect(
+  startRect: CanvasCrop,
+  handle: ResizeHandle,
+  deltaX: number,
+  deltaY: number,
+  aspect: CropAspect
+) {
+  const minSize = CROP_MIN_SIZE;
+  const ratio = getAspectRatio(aspect);
+
+  if (!ratio) {
+    const next = {
+      x: startRect.x,
+      y: startRect.y,
+      width: startRect.width,
+      height: startRect.height,
+    };
+
+    if (handle.includes('w')) {
+      const nextX = clamp(startRect.x + deltaX, 0, startRect.x + startRect.width - minSize);
+      next.width = startRect.x + startRect.width - nextX;
+      next.x = nextX;
+    }
+    if (handle.includes('e')) {
+      next.width = clamp(startRect.width + deltaX, minSize, 1 - startRect.x);
+    }
+    if (handle.includes('n')) {
+      const nextY = clamp(startRect.y + deltaY, 0, startRect.y + startRect.height - minSize);
+      next.height = startRect.y + startRect.height - nextY;
+      next.y = nextY;
+    }
+    if (handle.includes('s')) {
+      next.height = clamp(startRect.height + deltaY, minSize, 1 - startRect.y);
+    }
+
+    return next;
+  }
+
+  if (handle === 'n' || handle === 's') {
+    const anchorY = handle === 'n' ? startRect.y + startRect.height : startRect.y;
+    const centerX = startRect.x + startRect.width / 2;
+    const rawHeight = clamp(
+      handle === 'n' ? anchorY - (startRect.y + deltaY) : startRect.height + deltaY,
+      minSize,
+      1
+    );
+    const width = rawHeight * ratio;
+    const rect = {
+      x: centerX - width / 2,
+      y: handle === 'n' ? anchorY - rawHeight : anchorY,
+      width,
+      height: rawHeight,
+    };
+    return normalizeCrop(rect) || startRect;
+  }
+
+  if (handle === 'e' || handle === 'w') {
+    const anchorX = handle === 'w' ? startRect.x + startRect.width : startRect.x;
+    const centerY = startRect.y + startRect.height / 2;
+    const rawWidth = clamp(
+      handle === 'w' ? anchorX - (startRect.x + deltaX) : startRect.width + deltaX,
+      minSize,
+      1
+    );
+    const height = rawWidth / ratio;
+    const rect = {
+      x: handle === 'w' ? anchorX - rawWidth : anchorX,
+      y: centerY - height / 2,
+      width: rawWidth,
+      height,
+    };
+    return normalizeCrop(rect) || startRect;
+  }
+
+  const anchorX = handle.includes('w') ? startRect.x + startRect.width : startRect.x;
+  const anchorY = handle.includes('n') ? startRect.y + startRect.height : startRect.y;
+  const targetX = handle.includes('w') ? startRect.x + deltaX : startRect.x + startRect.width + deltaX;
+  const targetY = handle.includes('n') ? startRect.y + deltaY : startRect.y + startRect.height + deltaY;
+  const rawWidth = Math.abs(targetX - anchorX);
+  const rawHeight = Math.abs(targetY - anchorY);
+  let width = rawWidth;
+  let height = rawHeight;
+
+  if (width / Math.max(height, 0.0001) > ratio) {
+    height = width / ratio;
+  } else {
+    width = height * ratio;
+  }
+
+  width = Math.max(width, minSize);
+  height = Math.max(height, minSize);
+
+  const rect = fitCropWithinBounds(
+    {
+      x: targetX >= anchorX ? anchorX : anchorX - width,
+      y: targetY >= anchorY ? anchorY : anchorY - height,
+      width,
+      height,
+    },
+    ratio,
+    anchorX,
+    anchorY
+  );
+
+  return normalizeCrop(rect) || startRect;
 }
 
 export function cropImageSource(src: string, rect: CropRect, mimeType = 'image/png') {
