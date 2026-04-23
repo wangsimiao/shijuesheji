@@ -284,7 +284,7 @@ export default function ChatSidebar({
                                 <img
                                   src={message.imageUrl}
                                   alt="assistant result"
-                                  className="mt-3 w-full rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
+                                  className="mt-3 block w-full max-w-[50%] rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
                                 />
                               ) : null}
                             </div>
