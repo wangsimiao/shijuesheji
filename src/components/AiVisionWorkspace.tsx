@@ -18,7 +18,6 @@ import CanvasStage from './ai-vision/CanvasStage';
 import ChatSidebar from './ai-vision/ChatSidebar';
 import {
   ActionPopoverState,
-  CANVAS_WHEEL_LOCK_MS,
   CANVAS_ZOOM_STEP,
   CHAT_IMAGE_LIMIT,
   CropAspect,
@@ -220,8 +219,6 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const [isHistoryMenuOpen, setIsHistoryMenuOpen] = useState(false);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
-  const [canvasHover, setCanvasHover] = useState(false);
-  const [canvasWheelLock, setCanvasWheelLock] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportSize>(DEFAULT_VIEWPORT);
@@ -238,8 +235,18 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
   const brandMenuRef = useRef<HTMLDivElement | null>(null);
   const hasManualBoardNameEditRef = useRef(false);
-  const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
+  const activeTouchPointsRef = useRef<Map<number, { clientX: number; clientY: number }>>(
+    new Map<number, { clientX: number; clientY: number }>()
+  );
+  const capturedPointerIdsRef = useRef<Set<number>>(new Set<number>());
+  const pinchGestureRef = useRef<{
+    pointerIds: [number, number];
+    startDistance: number;
+    worldX: number;
+    worldY: number;
+    startScale: number;
+  } | null>(null);
 
   const itemsRef = useRef(items);
   const sessionsRef = useRef(sessions);
@@ -261,14 +268,6 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   useEffect(() => {
     viewportSizeRef.current = viewportSize;
   }, [viewportSize]);
-
-  useEffect(() => {
-    return () => {
-      if (wheelLockTimerRef.current) {
-        window.clearTimeout(wheelLockTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!statusNotice) return undefined;
@@ -334,40 +333,16 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   }, [sessions]);
 
   useEffect(() => {
-    if (!cropState) return;
-    setCanvasHover(false);
-    setCanvasWheelLock(false);
-    if (wheelLockTimerRef.current) {
-      window.clearTimeout(wheelLockTimerRef.current);
-      wheelLockTimerRef.current = null;
-    }
-  }, [cropState]);
-
-  useEffect(() => {
-    if (cropState) return undefined;
-
-    const handleWheelCapture = (event: WheelEvent) => {
-      if (!(canvasHover || canvasWheelLock)) return;
-      const canvas = canvasViewportRef.current;
-      if (!canvas) return;
-
-      const targetNode = event.target instanceof Node ? event.target : null;
-      const isInsideCanvas = Boolean(targetNode && canvas.contains(targetNode));
-      if (isInsideCanvas) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-    };
-
-    window.addEventListener('wheel', handleWheelCapture, {
-      capture: true,
-      passive: false,
-    });
+    const html = document.documentElement;
+    const body = document.body;
+    html.classList.add('ai-visual-gesture-lock');
+    body.classList.add('ai-visual-gesture-lock');
 
     return () => {
-      window.removeEventListener('wheel', handleWheelCapture, true);
+      html.classList.remove('ai-visual-gesture-lock');
+      body.classList.remove('ai-visual-gesture-lock');
     };
-  }, [canvasHover, canvasWheelLock, cropState]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -464,15 +439,105 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     }));
   }
 
-  function armCanvasWheelLock() {
-    setCanvasWheelLock(true);
-    if (wheelLockTimerRef.current) {
-      window.clearTimeout(wheelLockTimerRef.current);
+  function captureCanvasPointer(pointerId: number) {
+    const canvas = canvasViewportRef.current;
+    if (!canvas || capturedPointerIdsRef.current.has(pointerId)) return;
+    try {
+      canvas.setPointerCapture(pointerId);
+      capturedPointerIdsRef.current.add(pointerId);
+    } catch {
+      capturedPointerIdsRef.current.delete(pointerId);
     }
-    wheelLockTimerRef.current = window.setTimeout(() => {
-      setCanvasWheelLock(false);
-      wheelLockTimerRef.current = null;
-    }, CANVAS_WHEEL_LOCK_MS);
+  }
+
+  function releaseCanvasPointer(pointerId: number) {
+    const canvas = canvasViewportRef.current;
+    if (!canvas || !capturedPointerIdsRef.current.has(pointerId)) return;
+    try {
+      if (canvas.hasPointerCapture(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // Ignore release errors from browsers that already cleared capture.
+    }
+    capturedPointerIdsRef.current.delete(pointerId);
+  }
+
+  function updateTouchPoint(pointerId: number, clientX: number, clientY: number) {
+    activeTouchPointsRef.current.set(pointerId, { clientX, clientY });
+  }
+
+  function removeTouchPoint(pointerId: number) {
+    activeTouchPointsRef.current.delete(pointerId);
+  }
+
+  function getPinchEntries(): Array<[number, { clientX: number; clientY: number }]> {
+    const entries: Array<[number, { clientX: number; clientY: number }]> = [];
+    activeTouchPointsRef.current.forEach((point, pointerId) => {
+      if (entries.length < 2) {
+        entries.push([pointerId, point]);
+      }
+    });
+    return entries;
+  }
+
+  function tryStartPinchGesture() {
+    const entries = getPinchEntries();
+    const currentInteraction = interactionRef.current;
+    if (entries.length !== 2 || cropState) return;
+    if (currentInteraction && currentInteraction.type !== 'pan') return;
+    if (tool !== 'select' && currentInteraction?.type !== 'pan') return;
+
+    const [[firstId, firstPoint], [secondId, secondPoint]] = entries;
+    const centerX = (firstPoint.clientX + secondPoint.clientX) / 2;
+    const centerY = (firstPoint.clientY + secondPoint.clientY) / 2;
+    const startDistance = Math.hypot(
+      secondPoint.clientX - firstPoint.clientX,
+      secondPoint.clientY - firstPoint.clientY
+    );
+    if (startDistance < 8) return;
+
+    interactionRef.current = null;
+    setDrawPreviewPoints(null);
+    setLinePreviewItem(null);
+    pinchGestureRef.current = {
+      pointerIds: [firstId, secondId],
+      startDistance,
+      worldX: (centerX - viewRef.current.x) / viewRef.current.scale,
+      worldY: (centerY - viewRef.current.y) / viewRef.current.scale,
+      startScale: viewRef.current.scale,
+    };
+  }
+
+  function updatePinchGesture() {
+    const pinch = pinchGestureRef.current;
+    if (!pinch) return false;
+
+    const firstPoint = activeTouchPointsRef.current.get(pinch.pointerIds[0]);
+    const secondPoint = activeTouchPointsRef.current.get(pinch.pointerIds[1]);
+    if (!firstPoint || !secondPoint) return false;
+
+    const centerX = (firstPoint.clientX + secondPoint.clientX) / 2;
+    const centerY = (firstPoint.clientY + secondPoint.clientY) / 2;
+    const nextDistance = Math.hypot(
+      secondPoint.clientX - firstPoint.clientX,
+      secondPoint.clientY - firstPoint.clientY
+    );
+    if (nextDistance < 8) return true;
+
+    const nextScale = clamp(
+      pinch.startScale * (nextDistance / pinch.startDistance),
+      MIN_SCALE,
+      MAX_SCALE
+    );
+
+    setView((previous) => ({
+      ...previous,
+      scale: nextScale,
+      x: centerX - pinch.worldX * nextScale,
+      y: centerY - pinch.worldY * nextScale,
+    }));
+    return true;
   }
 
   function updateScaleFromViewportPoint(nextScale: number, originX: number, originY: number) {
@@ -515,13 +580,11 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   }
 
   function handleZoomIn() {
-    armCanvasWheelLock();
     const center = getCanvasViewportCenter();
     updateScaleFromViewportPoint(viewRef.current.scale * CANVAS_ZOOM_STEP, center.x, center.y);
   }
 
   function handleZoomOut() {
-    armCanvasWheelLock();
     const center = getCanvasViewportCenter();
     updateScaleFromViewportPoint(viewRef.current.scale / CANVAS_ZOOM_STEP, center.x, center.y);
   }
@@ -886,6 +949,15 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     if (editingTextItemId) finishTextEditing();
     if (cropState) return;
 
+    captureCanvasPointer(event.pointerId);
+    if (event.pointerType === 'touch') {
+      updateTouchPoint(event.pointerId, event.clientX, event.clientY);
+      tryStartPinchGesture();
+      if (pinchGestureRef.current) {
+        return;
+      }
+    }
+
     const canvas = canvasViewportRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -894,6 +966,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     if (tool === 'draw') {
       interactionRef.current = {
         type: 'draw',
+        pointerId: event.pointerId,
         points: [point],
       };
       setDrawPreviewPoints([point]);
@@ -904,6 +977,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     if (tool === 'line') {
       interactionRef.current = {
         type: 'line-create',
+        pointerId: event.pointerId,
         startPoint: point,
         currentPoint: point,
       };
@@ -928,6 +1002,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     setActionPopover(null);
     interactionRef.current = {
       type: 'pan',
+      pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       originX: viewRef.current.x,
@@ -941,11 +1016,21 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     if (cropState) return;
     if (editingTextItemId && editingTextItemId !== item.id) finishTextEditing();
 
+    captureCanvasPointer(event.pointerId);
+    if (event.pointerType === 'touch') {
+      updateTouchPoint(event.pointerId, event.clientX, event.clientY);
+      tryStartPinchGesture();
+      if (pinchGestureRef.current) {
+        return;
+      }
+    }
+
     setSingleSelection(item.id);
     if (tool !== 'select') return;
 
     interactionRef.current = {
       type: 'drag',
+      pointerId: event.pointerId,
       itemId: item.id,
       startClientX: event.clientX,
       startClientY: event.clientY,
@@ -961,8 +1046,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     handle: ResizeHandle
   ) {
     event.stopPropagation();
+    captureCanvasPointer(event.pointerId);
     interactionRef.current = {
       type: 'resize',
+      pointerId: event.pointerId,
       itemId: item.id,
       handle,
       startClientX: event.clientX,
@@ -982,6 +1069,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     endpointIndex: 0 | 1
   ) {
     event.stopPropagation();
+    captureCanvasPointer(event.pointerId);
     const [firstPoint, secondPoint] = [
       {
         x: item.x + (item.points?.[0]?.x ?? 0),
@@ -995,6 +1083,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
 
     interactionRef.current = {
       type: 'line-endpoint',
+      pointerId: event.pointerId,
       itemId: item.id,
       endpointIndex,
       startClientX: event.clientX,
@@ -1007,8 +1096,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   function handleCropMovePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!cropState || !cropTargetItem) return;
     event.stopPropagation();
+    captureCanvasPointer(event.pointerId);
     interactionRef.current = {
       type: 'crop-move',
+      pointerId: event.pointerId,
       itemId: cropState.itemId,
       startClientX: event.clientX,
       startClientY: event.clientY,
@@ -1025,8 +1116,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   ) {
     if (!cropState || !cropTargetItem) return;
     event.stopPropagation();
+    captureCanvasPointer(event.pointerId);
     interactionRef.current = {
       type: 'crop-resize',
+      pointerId: event.pointerId,
       itemId: cropState.itemId,
       handle,
       startClientX: event.clientX,
@@ -1042,10 +1135,9 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   function handleCanvasWheel(event: React.WheelEvent<HTMLDivElement>) {
     if (cropState) return;
     event.preventDefault();
+    event.stopPropagation();
     const canvas = canvasViewportRef.current;
     if (!canvas) return;
-
-    armCanvasWheelLock();
 
     if (!event.ctrlKey) {
       applyCanvasPanFromWheel(event);
@@ -1408,174 +1500,225 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   }, [cropState, editingTextItemId, selectedItemId, tool]);
 
   useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const currentInteraction = interactionRef.current;
-      const canvas = canvasViewportRef.current;
-      if (!currentInteraction || !canvas) return;
-
-      if (currentInteraction.type === 'pan') {
-        setView((previous) => ({
-          ...previous,
-          x: currentInteraction.originX + (event.clientX - currentInteraction.startClientX),
-          y: currentInteraction.originY + (event.clientY - currentInteraction.startClientY),
-        }));
-        return;
-      }
-
-      if (currentInteraction.type === 'drag') {
-        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
-        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === currentInteraction.itemId
-              ? {
-                  ...item,
-                  x: currentInteraction.originX + deltaX,
-                  y: currentInteraction.originY + deltaY,
-                }
-              : item
-          )
-        );
-        return;
-      }
-
-      if (currentInteraction.type === 'resize') {
-        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
-        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === currentInteraction.itemId
-              ? resizeItem(
-                  {
-                    ...item,
-                    x: currentInteraction.originX,
-                    y: currentInteraction.originY,
-                    width: currentInteraction.originWidth,
-                    height: currentInteraction.originHeight,
-                  },
-                  currentInteraction.handle,
-                  deltaX,
-                  deltaY
-                )
-              : item
-          )
-        );
-        return;
-      }
-
-      if (currentInteraction.type === 'line-endpoint') {
-        const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
-        const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
-        const startPoint = currentInteraction.startPoints[currentInteraction.endpointIndex];
-        const nextPoint = {
-          x: startPoint.x + deltaX,
-          y: startPoint.y + deltaY,
-        };
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === currentInteraction.itemId ? updateLineEndpoint(item, currentInteraction.endpointIndex, nextPoint) : item
-          )
-        );
-        return;
-      }
-
-      if (currentInteraction.type === 'crop-move') {
-        const deltaX =
-          (event.clientX - currentInteraction.startClientX) /
-          (currentInteraction.itemWidth * currentInteraction.scale);
-        const deltaY =
-          (event.clientY - currentInteraction.startClientY) /
-          (currentInteraction.itemHeight * currentInteraction.scale);
-        setCropState((previous) =>
-          previous && previous.itemId === currentInteraction.itemId
-            ? {
-                ...previous,
-                rect: moveCropRect(currentInteraction.startRect, deltaX, deltaY),
-              }
-            : previous
-        );
-        return;
-      }
-
-      if (currentInteraction.type === 'crop-resize') {
-        const deltaX =
-          (event.clientX - currentInteraction.startClientX) /
-          (currentInteraction.itemWidth * currentInteraction.scale);
-        const deltaY =
-          (event.clientY - currentInteraction.startClientY) /
-          (currentInteraction.itemHeight * currentInteraction.scale);
-        setCropState((previous) =>
-          previous && previous.itemId === currentInteraction.itemId
-            ? {
-                ...previous,
-                rect: resizeCropRect(
-                  currentInteraction.startRect,
-                  currentInteraction.handle,
-                  deltaX,
-                  deltaY,
-                  currentInteraction.aspect
-                ),
-              }
-            : previous
-        );
-        return;
-      }
-
-      if (currentInteraction.type === 'line-create') {
-        const rect = canvas.getBoundingClientRect();
-        const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
-        currentInteraction.currentPoint = point;
-        setLinePreviewItem(createLineItem(currentInteraction.startPoint, point));
-        return;
-      }
-
-      const rect = canvas.getBoundingClientRect();
-      const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
-      const lastPoint = currentInteraction.points[currentInteraction.points.length - 1];
-      if (!lastPoint || Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 1.5) {
-        return;
-      }
-      currentInteraction.points = [...currentInteraction.points, point];
-      setDrawPreviewPoints(currentInteraction.points);
-    };
-
-    const handlePointerUp = () => {
-      const currentInteraction = interactionRef.current;
-      if (!currentInteraction) return;
-
-      if (currentInteraction.type === 'draw') {
-        const drawing = buildDrawingFrame(currentInteraction.points, DRAW_STROKE_WIDTH);
-        if (drawing) {
-          setItems((previous) => [...previous, drawing]);
-          setSingleSelection(drawing.id);
-        }
-      }
-
-      if (currentInteraction.type === 'line-create') {
-        const [startPoint, endPoint] = [currentInteraction.startPoint, currentInteraction.currentPoint];
-        if (Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) > 4) {
-          const lineItem = createLineItem(startPoint, endPoint);
-          setItems((previous) => [...previous, { ...lineItem, strokeColor: DEFAULT_LINE_COLOR }]);
-          setSingleSelection(lineItem.id);
-          setTool('select');
-        }
-      }
-
-      interactionRef.current = null;
-      setDrawPreviewPoints(null);
-      setLinePreviewItem(null);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
+      activeTouchPointsRef.current.clear();
+      pinchGestureRef.current = null;
+      capturedPointerIdsRef.current.forEach((pointerId) => {
+        releaseCanvasPointer(pointerId);
+      });
     };
   }, []);
 
+  function clearInteractionState() {
+    interactionRef.current = null;
+    setDrawPreviewPoints(null);
+    setLinePreviewItem(null);
+  }
+
+  function finishPointerInteraction(commit: boolean) {
+    const currentInteraction = interactionRef.current;
+    if (!currentInteraction) return;
+
+    if (commit && currentInteraction.type === 'draw') {
+      const drawing = buildDrawingFrame(currentInteraction.points, DRAW_STROKE_WIDTH);
+      if (drawing) {
+        setItems((previous) => [...previous, drawing]);
+        setSingleSelection(drawing.id);
+      }
+    }
+
+    if (commit && currentInteraction.type === 'line-create') {
+      const [startPoint, endPoint] = [currentInteraction.startPoint, currentInteraction.currentPoint];
+      if (Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) > 4) {
+        const lineItem = createLineItem(startPoint, endPoint);
+        setItems((previous) => [...previous, { ...lineItem, strokeColor: DEFAULT_LINE_COLOR }]);
+        setSingleSelection(lineItem.id);
+        setTool('select');
+      }
+    }
+
+    clearInteractionState();
+  }
+
+  function handleCanvasPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch' && activeTouchPointsRef.current.has(event.pointerId)) {
+      updateTouchPoint(event.pointerId, event.clientX, event.clientY);
+      if (updatePinchGesture()) {
+        event.preventDefault();
+        return;
+      }
+    }
+
+    const currentInteraction = interactionRef.current;
+    const canvas = canvasViewportRef.current;
+    if (!currentInteraction || !canvas || currentInteraction.pointerId !== event.pointerId) return;
+
+    if (currentInteraction.type === 'pan') {
+      setView((previous) => ({
+        ...previous,
+        x: currentInteraction.originX + (event.clientX - currentInteraction.startClientX),
+        y: currentInteraction.originY + (event.clientY - currentInteraction.startClientY),
+      }));
+      return;
+    }
+
+    if (currentInteraction.type === 'drag') {
+      const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
+      const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
+      setItems((previous) =>
+        previous.map((item) =>
+          item.id === currentInteraction.itemId
+            ? {
+                ...item,
+                x: currentInteraction.originX + deltaX,
+                y: currentInteraction.originY + deltaY,
+              }
+            : item
+        )
+      );
+      return;
+    }
+
+    if (currentInteraction.type === 'resize') {
+      const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
+      const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
+      setItems((previous) =>
+        previous.map((item) =>
+          item.id === currentInteraction.itemId
+            ? resizeItem(
+                {
+                  ...item,
+                  x: currentInteraction.originX,
+                  y: currentInteraction.originY,
+                  width: currentInteraction.originWidth,
+                  height: currentInteraction.originHeight,
+                },
+                currentInteraction.handle,
+                deltaX,
+                deltaY
+              )
+            : item
+        )
+      );
+      return;
+    }
+
+    if (currentInteraction.type === 'line-endpoint') {
+      const deltaX = (event.clientX - currentInteraction.startClientX) / currentInteraction.scale;
+      const deltaY = (event.clientY - currentInteraction.startClientY) / currentInteraction.scale;
+      const startPoint = currentInteraction.startPoints[currentInteraction.endpointIndex];
+      const nextPoint = {
+        x: startPoint.x + deltaX,
+        y: startPoint.y + deltaY,
+      };
+      setItems((previous) =>
+        previous.map((item) =>
+          item.id === currentInteraction.itemId
+            ? updateLineEndpoint(item, currentInteraction.endpointIndex, nextPoint)
+            : item
+        )
+      );
+      return;
+    }
+
+    if (currentInteraction.type === 'crop-move') {
+      const deltaX =
+        (event.clientX - currentInteraction.startClientX) /
+        (currentInteraction.itemWidth * currentInteraction.scale);
+      const deltaY =
+        (event.clientY - currentInteraction.startClientY) /
+        (currentInteraction.itemHeight * currentInteraction.scale);
+      setCropState((previous) =>
+        previous && previous.itemId === currentInteraction.itemId
+          ? {
+              ...previous,
+              rect: moveCropRect(currentInteraction.startRect, deltaX, deltaY),
+            }
+          : previous
+      );
+      return;
+    }
+
+    if (currentInteraction.type === 'crop-resize') {
+      const deltaX =
+        (event.clientX - currentInteraction.startClientX) /
+        (currentInteraction.itemWidth * currentInteraction.scale);
+      const deltaY =
+        (event.clientY - currentInteraction.startClientY) /
+        (currentInteraction.itemHeight * currentInteraction.scale);
+      setCropState((previous) =>
+        previous && previous.itemId === currentInteraction.itemId
+          ? {
+              ...previous,
+              rect: resizeCropRect(
+                currentInteraction.startRect,
+                currentInteraction.handle,
+                deltaX,
+                deltaY,
+                currentInteraction.aspect
+              ),
+            }
+          : previous
+      );
+      return;
+    }
+
+    if (currentInteraction.type === 'line-create') {
+      const rect = canvas.getBoundingClientRect();
+      const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
+      currentInteraction.currentPoint = point;
+      setLinePreviewItem(createLineItem(currentInteraction.startPoint, point));
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
+    const lastPoint = currentInteraction.points[currentInteraction.points.length - 1];
+    if (!lastPoint || Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 1.5) {
+      return;
+    }
+    currentInteraction.points = [...currentInteraction.points, point];
+    setDrawPreviewPoints(currentInteraction.points);
+  }
+
+  function handleCanvasPointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch') {
+      removeTouchPoint(event.pointerId);
+      const pinch = pinchGestureRef.current;
+      if (pinch && pinch.pointerIds.includes(event.pointerId)) {
+        pinchGestureRef.current = null;
+      }
+    }
+
+    const currentInteraction = interactionRef.current;
+    if (currentInteraction && currentInteraction.pointerId === event.pointerId) {
+      finishPointerInteraction(true);
+    }
+
+    releaseCanvasPointer(event.pointerId);
+  }
+
+  function handleCanvasPointerCancel(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch') {
+      removeTouchPoint(event.pointerId);
+      if (pinchGestureRef.current?.pointerIds.includes(event.pointerId)) {
+        pinchGestureRef.current = null;
+      }
+    }
+
+    const currentInteraction = interactionRef.current;
+    if (currentInteraction && currentInteraction.pointerId === event.pointerId) {
+      clearInteractionState();
+    }
+
+    releaseCanvasPointer(event.pointerId);
+  }
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100">
+    <div
+      className="flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100"
+      style={{ overscrollBehavior: 'none' }}
+    >
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           className="flex items-center border-b border-white/[0.06] bg-[#0d1118]/95 px-4"
@@ -1621,13 +1764,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
           imageInputRef={imageInputRef}
           videoInputRef={videoInputRef}
           isModelConfigured={isDoubaoConfigured()}
-          onCanvasPointerEnter={() => {
-            if (!cropState) setCanvasHover(true);
-          }}
-          onCanvasPointerLeave={() => {
-            setCanvasHover(false);
-          }}
           onCanvasPointerDown={handleCanvasPointerDown}
+          onCanvasPointerMove={handleCanvasPointerMove}
+          onCanvasPointerUp={handleCanvasPointerUp}
+          onCanvasPointerCancel={handleCanvasPointerCancel}
           onCanvasWheel={handleCanvasWheel}
           onItemPointerDown={handleItemPointerDown}
           onItemDoubleClick={handleItemDoubleClick}

@@ -67,9 +67,10 @@ interface CanvasStageProps {
   imageInputRef: RefObject<HTMLInputElement>;
   videoInputRef: RefObject<HTMLInputElement>;
   isModelConfigured: boolean;
-  onCanvasPointerEnter: () => void;
-  onCanvasPointerLeave: () => void;
   onCanvasPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onCanvasPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onCanvasPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onCanvasPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
   onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void;
   onItemPointerDown: (event: React.PointerEvent<HTMLDivElement>, item: CanvasItem) => void;
   onItemDoubleClick: (item: CanvasItem) => void;
@@ -295,9 +296,10 @@ export default function CanvasStage({
   imageInputRef,
   videoInputRef,
   isModelConfigured,
-  onCanvasPointerEnter,
-  onCanvasPointerLeave,
   onCanvasPointerDown,
+  onCanvasPointerMove,
+  onCanvasPointerUp,
+  onCanvasPointerCancel,
   onCanvasWheel,
   onItemPointerDown,
   onItemDoubleClick,
@@ -338,16 +340,19 @@ export default function CanvasStage({
     <div className="relative min-h-0 flex-1">
       <div
         ref={canvasViewportRef}
-        onPointerEnter={onCanvasPointerEnter}
-        onPointerLeave={onCanvasPointerLeave}
         onPointerDown={onCanvasPointerDown}
+        onPointerMove={onCanvasPointerMove}
+        onPointerUp={onCanvasPointerUp}
+        onPointerCancel={onCanvasPointerCancel}
         onWheel={onCanvasWheel}
-        className="relative h-full overflow-hidden bg-[#090c13]"
+        className="relative h-full overflow-hidden bg-[#090c13] select-none"
         style={{
           backgroundImage:
             'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)',
           backgroundSize: '18px 18px',
           backgroundPosition: 'center center',
+          touchAction: 'none',
+          overscrollBehavior: 'none',
         }}
       >
         <div
