@@ -84,7 +84,6 @@ import {
 interface AiVisionWorkspaceProps {
   project: Project;
   onBack: () => void;
-  onOpenModelSettings: () => void;
 }
 
 function normalizeProjectName(value: string) {
@@ -304,7 +303,6 @@ function getClientPointCenter(
 export default function AiVisionWorkspace({
   project,
   onBack,
-  onOpenModelSettings,
 }: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
@@ -2227,7 +2225,6 @@ export default function AiVisionWorkspace({
         onToggleCollapsed={() => setIsChatSidebarCollapsed((previous) => !previous)}
         onToggleHistoryMenu={() => setIsHistoryMenuOpen((previous) => !previous)}
         onToggleBrandMenu={() => setIsBrandMenuOpen((previous) => !previous)}
-        onOpenModelSettings={onOpenModelSettings}
         onCreateSession={handleCreateSession}
         onSwitchSession={(sessionId) => {
           setCurrentSessionId(sessionId);

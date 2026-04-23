@@ -7,7 +7,6 @@ import {
   Loader2,
   Plus,
   Send,
-  Settings2,
   Trash2,
   X,
 } from 'lucide-react';
@@ -50,7 +49,6 @@ interface ChatSidebarProps {
   onToggleCollapsed: () => void;
   onToggleHistoryMenu: () => void;
   onToggleBrandMenu: () => void;
-  onOpenModelSettings: () => void;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
   onSelectScene: (scene: SceneTab) => void;
@@ -190,7 +188,6 @@ export default function ChatSidebar({
   onToggleCollapsed,
   onToggleHistoryMenu,
   onToggleBrandMenu,
-  onOpenModelSettings,
   onCreateSession,
   onSwitchSession,
   onSelectScene,
@@ -223,10 +220,7 @@ export default function ChatSidebar({
         </button>
       ) : (
         <div className="flex h-full flex-col overflow-hidden rounded-l-[30px] border-l border-white/[0.05] bg-[#14171d] shadow-[-20px_0_64px_rgba(0,0,0,0.36)]">
-          <div
-            className="border-b border-white/[0.05] px-5"
-            style={{ minHeight: headerHeight }}
-          >
+          <div className="border-b border-white/[0.05] px-5" style={{ minHeight: headerHeight }}>
             <div className="flex h-full items-center justify-between gap-3">
               <div ref={historyMenuRef} className="relative flex min-w-0 items-center gap-3">
                 <button
@@ -460,15 +454,6 @@ export default function ChatSidebar({
                         </div>
                       ) : null}
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={onOpenModelSettings}
-                      className="inline-flex h-9 items-center gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-slate-200 transition hover:bg-[#1a1f28]"
-                    >
-                      <Settings2 className="h-3.5 w-3.5" />
-                      模型设置
-                    </button>
 
                     <div className="ml-auto flex items-center gap-2">
                       <button

@@ -426,11 +426,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                 管理 AI 设计出图模型
               </h2>
               <p className="mt-3 max-w-[760px] text-sm leading-7 text-slate-400">
-                这里统一配置 AI 设计里的出图模型连接信息。豆包支持继续回退到
-                <code className="mx-1 rounded bg-white/[0.06] px-1.5 py-0.5 text-slate-200">
-                  VITE_DOUBAO_*
-                </code>
-                环境变量，OpenRouter 以此页面保存的配置为准。
+                这里统一配置 AI 设计里的出图模型连接信息。豆包与 OpenRouter 都只读取此页面保存的配置，不再回退本地环境变量。
               </p>
             </div>
 
@@ -485,7 +481,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
         <div className="grid gap-6 xl:grid-cols-2">
           <ProviderSection
             title="豆包"
-            description="AI 设计里的豆包出图链路会优先读取这里的设置；如果这里的 API Key 留空，会回退到现有的 Vite 环境变量。"
+            description="AI 设计里的豆包出图链路只读取此页面设置。请确保地址与 API Key 都已填写。"
             apiBaseUrl={modelSettings.providers.doubao.apiBaseUrl}
             apiKey={modelSettings.providers.doubao.apiKey}
             imageModel={modelSettings.providers.doubao.imageModel}

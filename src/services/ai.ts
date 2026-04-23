@@ -56,21 +56,17 @@ export type VideoTaskStatusResult = {
   videoUrl?: string;
 };
 
-const DOUBAO_ENV_API_BASE_URL = (
-  import.meta.env.VITE_DOUBAO_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3'
-).trim();
-const DOUBAO_ENV_API_KEY = () => (import.meta.env.VITE_DOUBAO_API_KEY || '').trim();
+const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_CHAT_MODEL = (
   import.meta.env.VITE_DOUBAO_CHAT_MODEL || 'doubao-seed-1-8-251228'
 ).trim();
-const DOUBAO_ENV_IMAGE_MODEL = (
-  import.meta.env.VITE_DOUBAO_IMAGE_MODEL || DOUBAO_5_IMAGE_MODEL
-).trim();
 const DEFAULT_VIDEO_MODEL = () => (import.meta.env.VITE_DOUBAO_VIDEO_MODEL || '').trim();
-const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
 
 const DEFAULT_SYSTEM_PROMPT = `
-你是“电商AI”设计助手，请始终使用中文回答。当用户明确要求“生图/出图/改图/图生图”时，优先触发 generateImage 工具。当用户是咨询问题时，给出简明、可执行的建议。
+你是“电商AI”设计助手，请始终使用中文回复。
+当用户明确要求“生成图片/出图/改图/图生图”时，优先触发 generateImage 工具。
+当用户是咨询问题时，给出简明、可执行的建议。
 `.trim();
 
 const IMAGE_INTENT_KEYWORDS = [
@@ -121,9 +117,9 @@ function resolveDoubaoImageConfig(): ImageProviderConfig {
   const provider = settings.providers.doubao;
   return {
     provider: 'doubao',
-    apiBaseUrl: (provider.apiBaseUrl || DOUBAO_ENV_API_BASE_URL).trim() || DOUBAO_ENV_API_BASE_URL,
-    apiKey: (provider.apiKey || DOUBAO_ENV_API_KEY()).trim(),
-    imageModel: (provider.imageModel || DOUBAO_ENV_IMAGE_MODEL).trim() || DOUBAO_5_IMAGE_MODEL,
+    apiBaseUrl: (provider.apiBaseUrl || DOUBAO_DEFAULT_API_BASE_URL).trim() || DOUBAO_DEFAULT_API_BASE_URL,
+    apiKey: (provider.apiKey || '').trim(),
+    imageModel: (provider.imageModel || DOUBAO_5_IMAGE_MODEL).trim() || DOUBAO_5_IMAGE_MODEL,
   };
 }
 
@@ -167,7 +163,7 @@ export function getImageModelConfigurationMessage(model: string) {
   if (isOpenRouterImageModel(model || '')) {
     return '当前所选模型未配置，请前往模型设置页完成 OpenRouter 地址和 API Key 配置。';
   }
-  return '当前所选模型未配置，请前往模型设置页完成豆包地址和 API Key 配置，或检查 VITE_DOUBAO_* 环境变量。';
+  return '当前所选模型未配置，请前往模型设置页完成豆包地址和 API Key 配置。';
 }
 
 function requireVideoModel() {
@@ -179,10 +175,7 @@ function requireVideoModel() {
 }
 
 export function getResolvedImageModelConfigurationMessage(model: string) {
-  if (isOpenRouterImageModel(model || '')) {
-    return '当前所选模型未配置，请前往模型设置页完成 OpenRouter 地址和 API Key 配置。';
-  }
-  return '当前所选模型未配置，请前往模型设置页完成豆包地址和 API Key 配置，或检查 VITE_DOUBAO_* 环境变量。';
+  return getImageModelConfigurationMessage(model);
 }
 
 function normalizeRole(role: string): 'system' | 'user' | 'assistant' {
@@ -309,7 +302,7 @@ function parseFunctionCallsFromMarkers(rawText: string) {
         });
       }
     } catch {
-      // ignore invalid marker block
+      // ignore malformed call blocks
     }
   }
 
@@ -664,7 +657,7 @@ async function generateOpenRouterImage(
 
 export async function generateImageAI(
   prompt: string,
-  model: string = DOUBAO_ENV_IMAGE_MODEL,
+  model: string = DOUBAO_5_IMAGE_MODEL,
   referenceImages: string[] = []
 ): Promise<string> {
   const cleanPrompt = prompt.trim();
@@ -690,7 +683,7 @@ export async function generateVideoAI(
 
   const doubaoConfig = resolveDoubaoChatConfig();
   if (!doubaoConfig.apiKey) {
-    throw new Error('未配置豆包视频能力，请先完成豆包 API Key 配置。');
+    throw new Error('未配置豆包视频能力，请先在模型设置页配置豆包 API Key。');
   }
 
   const refs = referenceImages.filter(Boolean);
@@ -747,7 +740,7 @@ export async function pollVideoTask(taskId: string): Promise<VideoTaskStatusResu
 
   const doubaoConfig = resolveDoubaoChatConfig();
   if (!doubaoConfig.apiKey) {
-    throw new Error('未配置豆包视频能力，请先完成豆包 API Key 配置。');
+    throw new Error('未配置豆包视频能力，请先在模型设置页配置豆包 API Key。');
   }
 
   const pathCandidates = [`/videos/generations/${cleanTaskId}`, `/videos/${cleanTaskId}`];
