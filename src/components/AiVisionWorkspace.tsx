@@ -83,6 +83,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const [selectedImageModel, setSelectedImageModel] = useState(initialSnapshot.selectedImageModel);
   const [isHistoryMenuOpen, setIsHistoryMenuOpen] = useState(false);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
+  const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
   const [canvasHover, setCanvasHover] = useState(false);
   const [canvasWheelLock, setCanvasWheelLock] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
@@ -447,6 +448,23 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     });
   }
 
+  function getWheelDeltaInPixels(delta: number, deltaMode: number) {
+    if (deltaMode === 1) return delta * 16;
+    if (deltaMode === 2) return delta * viewportSizeRef.current.height;
+    return delta;
+  }
+
+  function applyCanvasPanFromWheel(event: React.WheelEvent<HTMLDivElement>) {
+    const deltaX = getWheelDeltaInPixels(event.deltaX, event.deltaMode);
+    const deltaY = getWheelDeltaInPixels(event.deltaY, event.deltaMode);
+
+    setView((previous) => ({
+      ...previous,
+      x: previous.x - deltaX,
+      y: previous.y - deltaY,
+    }));
+  }
+
   function getCanvasViewportCenter() {
     return {
       x: viewportSizeRef.current.width / 2,
@@ -792,6 +810,12 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     if (!canvas) return;
 
     armCanvasWheelLock();
+
+    if (!event.ctrlKey) {
+      applyCanvasPanFromWheel(event);
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const originX = event.clientX - rect.left;
     const originY = event.clientY - rect.top;
@@ -1195,6 +1219,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         brandTemplates={brandTemplates}
         selectedImageModel={selectedImageModel || DEFAULT_IMAGE_MODEL_OPTION.value}
         isChatLoading={isChatLoading}
+        isCollapsed={isChatSidebarCollapsed}
         isHistoryMenuOpen={isHistoryMenuOpen}
         isBrandMenuOpen={isBrandMenuOpen}
         storageWarning={storageWarning}
@@ -1203,6 +1228,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         brandMenuRef={brandMenuRef}
         chatUploadInputRef={chatUploadInputRef}
         brandTemplateInputRef={brandTemplateInputRef}
+        onToggleCollapsed={() => setIsChatSidebarCollapsed((previous) => !previous)}
         onToggleHistoryMenu={() => setIsHistoryMenuOpen((previous) => !previous)}
         onToggleBrandMenu={() => setIsBrandMenuOpen((previous) => !previous)}
         onCreateSession={handleCreateSession}
