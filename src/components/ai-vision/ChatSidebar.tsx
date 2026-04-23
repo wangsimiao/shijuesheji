@@ -7,13 +7,16 @@ import {
   Loader2,
   Plus,
   Send,
+  Settings2,
   Trash2,
   X,
 } from 'lucide-react';
 import type { BrandTemplate, ChatInputImage, ChatSession } from '../../types';
 import {
   CHAT_IMAGE_LIMIT,
+  DOUBAO_5_IMAGE_MODEL,
   IMAGE_MODEL_OPTIONS,
+  OPENROUTER_GPT_IMAGE_MODEL,
   SCENE_TAB_OPTIONS,
   SceneTab,
   WORKSPACE_HEADER_HEIGHT,
@@ -38,6 +41,7 @@ interface ChatSidebarProps {
   isBrandMenuOpen: boolean;
   storageWarning: string | null;
   isModelConfigured: boolean;
+  modelConfigurationMessage: string | null;
   headerHeight?: number;
   historyMenuRef: RefObject<HTMLDivElement | null>;
   brandMenuRef: RefObject<HTMLDivElement | null>;
@@ -46,6 +50,7 @@ interface ChatSidebarProps {
   onToggleCollapsed: () => void;
   onToggleHistoryMenu: () => void;
   onToggleBrandMenu: () => void;
+  onOpenModelSettings: () => void;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
   onSelectScene: (scene: SceneTab) => void;
@@ -64,6 +69,12 @@ function MenuPanel({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+function getDisplayModelLabel(value: string, fallbackLabel: string) {
+  if (value === OPENROUTER_GPT_IMAGE_MODEL) return 'GPT 5.4 Image 2';
+  if (value === DOUBAO_5_IMAGE_MODEL) return '豆包 5.0';
+  return fallbackLabel;
 }
 
 function HistoryMenu({
@@ -170,6 +181,7 @@ export default function ChatSidebar({
   isBrandMenuOpen,
   storageWarning,
   isModelConfigured,
+  modelConfigurationMessage,
   headerHeight = WORKSPACE_HEADER_HEIGHT,
   historyMenuRef,
   brandMenuRef,
@@ -178,6 +190,7 @@ export default function ChatSidebar({
   onToggleCollapsed,
   onToggleHistoryMenu,
   onToggleBrandMenu,
+  onOpenModelSettings,
   onCreateSession,
   onSwitchSession,
   onSelectScene,
@@ -400,9 +413,9 @@ export default function ChatSidebar({
                     className="mt-1 min-h-[112px] w-full resize-none bg-transparent px-1.5 py-1.5 text-[13px] leading-6 text-white outline-none placeholder:text-slate-500"
                   />
 
-                  {!isModelConfigured ? (
+                  {!isModelConfigured && modelConfigurationMessage ? (
                     <div className="mt-1.5 rounded-[14px] bg-amber-500/10 px-2.5 py-2 text-[10px] leading-4.5 text-amber-100">
-                      未配置 `VITE_DOUBAO_API_KEY`，对话和出图会失败。
+                      {modelConfigurationMessage}
                     </div>
                   ) : null}
 
@@ -416,11 +429,11 @@ export default function ChatSidebar({
                     <select
                       value={selectedImageModel}
                       onChange={(event) => onSelectModel(event.target.value)}
-                      className="h-9 w-[112px] rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-white outline-none"
+                      className="h-9 w-[172px] rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-white outline-none"
                     >
                       {IMAGE_MODEL_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
-                          {option.label}
+                          {getDisplayModelLabel(option.value, option.label)}
                         </option>
                       ))}
                     </select>
@@ -447,6 +460,15 @@ export default function ChatSidebar({
                         </div>
                       ) : null}
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={onOpenModelSettings}
+                      className="inline-flex h-9 items-center gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-slate-200 transition hover:bg-[#1a1f28]"
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                      模型设置
+                    </button>
 
                     <div className="ml-auto flex items-center gap-2">
                       <button

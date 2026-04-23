@@ -2,7 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { addBrandTemplateHydrated, getBrandTemplatesHydrated, saveProject } from '../store';
-import { chatWithAI, generateImageAI, isDoubaoConfigured } from '../services/ai';
+import {
+  chatWithAI,
+  generateImageAI,
+  getResolvedImageModelConfigurationMessage,
+  isImageModelConfigured,
+} from '../services/ai';
 import type {
   BrandTemplate,
   CanvasCrop,
@@ -79,6 +84,7 @@ import {
 interface AiVisionWorkspaceProps {
   project: Project;
   onBack: () => void;
+  onOpenModelSettings: () => void;
 }
 
 function normalizeProjectName(value: string) {
@@ -295,7 +301,11 @@ function getClientPointCenter(
   };
 }
 
-export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspaceProps) {
+export default function AiVisionWorkspace({
+  project,
+  onBack,
+  onOpenModelSettings,
+}: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
   const [boardName, setBoardName] = useState(initialSnapshot.boardName);
@@ -921,6 +931,11 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
     [sessions, currentSessionId]
   );
   const currentScene = currentSession ? sceneBySessionId[currentSession.id] || DEFAULT_SCENE_TAB : DEFAULT_SCENE_TAB;
+  const effectiveSelectedImageModel = selectedImageModel || DEFAULT_IMAGE_MODEL_OPTION.value;
+  const isSelectedImageModelConfigured = isImageModelConfigured(effectiveSelectedImageModel);
+  const selectedImageModelConfigurationMessage = getResolvedImageModelConfigurationMessage(
+    effectiveSelectedImageModel
+  );
 
   const selectedItemId = view.selectedItemIds[0] || null;
   const selectedItem = selectedItemId
@@ -2133,7 +2148,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
           canvasViewportRef={canvasViewportRef}
           imageInputRef={imageInputRef}
           videoInputRef={videoInputRef}
-          isModelConfigured={isDoubaoConfigured()}
+          isModelConfigured={isSelectedImageModelConfigured}
           onCanvasPointerEnter={() => {
             if (!cropState) setCanvasHover(true);
           }}
@@ -2177,9 +2192,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
           onConfirmCrop={confirmCrop}
           onSelectCropAspect={handleSelectCropAspect}
           onRegenerateSubmit={handleRegenerateSubmit}
-          onMissingRegenerateConfig={() =>
-            setStatusNotice('未配置 VITE_DOUBAO_API_KEY，暂时无法重新生成。')
-          }
+          onMissingRegenerateConfig={() => setStatusNotice(selectedImageModelConfigurationMessage)}
           onAddSelectedImageToChat={() => {
             if (!selectedImageItem) return;
             void exportImageSource(selectedImageItem).then((data) =>
@@ -2198,13 +2211,14 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         chatInput={chatInput}
         chatInputImages={chatInputImages}
         brandTemplates={brandTemplates}
-        selectedImageModel={selectedImageModel || DEFAULT_IMAGE_MODEL_OPTION.value}
+        selectedImageModel={effectiveSelectedImageModel}
         isChatLoading={isChatLoading}
         isCollapsed={isChatSidebarCollapsed}
         isHistoryMenuOpen={isHistoryMenuOpen}
         isBrandMenuOpen={isBrandMenuOpen}
         storageWarning={storageWarning}
-        isModelConfigured={isDoubaoConfigured()}
+        isModelConfigured={isSelectedImageModelConfigured}
+        modelConfigurationMessage={selectedImageModelConfigurationMessage}
         headerHeight={WORKSPACE_HEADER_HEIGHT}
         historyMenuRef={historyMenuRef}
         brandMenuRef={brandMenuRef}
@@ -2213,6 +2227,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
         onToggleCollapsed={() => setIsChatSidebarCollapsed((previous) => !previous)}
         onToggleHistoryMenu={() => setIsHistoryMenuOpen((previous) => !previous)}
         onToggleBrandMenu={() => setIsBrandMenuOpen((previous) => !previous)}
+        onOpenModelSettings={onOpenModelSettings}
         onCreateSession={handleCreateSession}
         onSwitchSession={(sessionId) => {
           setCurrentSessionId(sessionId);

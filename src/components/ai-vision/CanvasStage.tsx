@@ -990,7 +990,7 @@ export default function CanvasStage({
 
               {!isModelConfigured ? (
                 <div className="mt-3 rounded-[18px] border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
-                  未配置 `VITE_DOUBAO_API_KEY`，这个按钮不会真正发起生成。
+                  当前所选模型未配置，请先前往模型设置页完成配置。
                 </div>
               ) : null}
 

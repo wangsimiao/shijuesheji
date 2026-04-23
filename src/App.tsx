@@ -75,6 +75,7 @@ export default function App() {
       <AiVisionWorkspace
         project={activeProject}
         onBack={() => setCurrentRoute('design')}
+        onOpenModelSettings={() => setCurrentRoute('admin')}
       />
     );
   }

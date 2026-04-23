@@ -178,6 +178,13 @@ function requireVideoModel() {
   return model;
 }
 
+export function getResolvedImageModelConfigurationMessage(model: string) {
+  if (isOpenRouterImageModel(model || '')) {
+    return '当前所选模型未配置，请前往模型设置页完成 OpenRouter 地址和 API Key 配置。';
+  }
+  return '当前所选模型未配置，请前往模型设置页完成豆包地址和 API Key 配置，或检查 VITE_DOUBAO_* 环境变量。';
+}
+
 function normalizeRole(role: string): 'system' | 'user' | 'assistant' {
   if (role === 'assistant' || role === 'system') return role;
   return 'user';
@@ -362,7 +369,7 @@ function parseAssistantOutput(rawText: string) {
 
 function getOpenRouterHeaders() {
   const headers: Record<string, string> = {
-    'X-Title': '电商AI',
+    'X-Title': 'ecommerce-ai',
   };
 
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -538,7 +545,7 @@ async function generateDoubaoImage(
 ): Promise<string> {
   const config = resolveDoubaoImageConfig();
   if (!config.apiKey) {
-    throw new Error(getImageModelConfigurationMessage(model));
+    throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
   const refs = referenceImages.filter(Boolean);
@@ -603,7 +610,7 @@ async function generateOpenRouterImage(
 ): Promise<string> {
   const config = resolveOpenRouterImageConfig();
   if (!config.apiKey) {
-    throw new Error(getImageModelConfigurationMessage(model));
+    throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
   const refs = referenceImages.filter(Boolean);

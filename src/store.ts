@@ -291,6 +291,7 @@ export async function saveProject(project: Project) {
 export async function createNewProject(name: string): Promise<Project> {
   const currentUser = getCurrentUser();
   const sessionId = uuidv4();
+  const modelSettings = getModelSettings();
   const project: Project = {
     id: uuidv4(),
     name: name.trim() || 'AI 设计项目',
@@ -298,7 +299,8 @@ export async function createNewProject(name: string): Promise<Project> {
     sessions: [{ id: sessionId, title: 'New chat', messages: [], createdAt: Date.now() }],
     currentSessionId: sessionId,
     view: { ...DEFAULT_VIEW },
-    selectedImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
+    selectedImageModel:
+      modelSettings.defaultAiVisionImageModel || DEFAULT_IMAGE_MODEL_OPTION.value,
     sceneBySessionId: { [sessionId]: 'general' },
     updatedAt: Date.now(),
     creatorId: currentUser.id,
