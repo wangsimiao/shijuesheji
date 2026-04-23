@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
+import { parseLegacyWorkspaceSnapshot } from './components/ai-vision/workspace-model';
 import {
   BrandTemplate,
   ModelSettings,
   OpenLovartProject,
-  OpenPencilProject,
   ProductMonitorConfig,
   ProductMonitorRun,
   Project,
@@ -12,12 +12,17 @@ import {
 } from './types';
 
 const PROJECTS_KEY = 'ecommerce_ai_projects';
+const PROJECTS_DB_NAME = 'ecommerce_ai_projects_db';
+const PROJECTS_STORE_NAME = 'projects';
+const PROJECTS_LS_MIGRATION_KEY = 'ecommerce_ai_projects_idb_migrated_v1';
 const BRAND_TEMPLATES_KEY = 'ecommerce_ai_brand_templates';
 const MODEL_SETTINGS_KEY = 'ecommerce_ai_model_settings';
-const OPEN_PENCIL_PROJECTS_KEY = 'ecommerce_ai_openpencil_projects';
 const OPEN_LOVART_PROJECTS_KEY = 'ecommerce_ai_openlovart_projects';
 const PRODUCT_MONITOR_CONFIG_KEY = 'ecommerce_ai_product_monitor_config';
 const PRODUCT_MONITOR_RUNS_KEY = 'ecommerce_ai_product_monitor_runs';
+const LEGACY_AI_VISION_STORAGE_KEY = 'ai_visual_workspace_v1';
+const LEGACY_AI_VISION_MIGRATION_KEY = 'ecommerce_ai_ai_visual_migrated_v1';
+const DEFAULT_IMAGE_MODEL = 'doubao-seedream-5-0-260128';
 
 const DEFAULT_VIEW: ViewState = {
   x: 100,
@@ -29,7 +34,7 @@ const DEFAULT_VIEW: ViewState = {
 const DEFAULT_MODEL_SETTINGS: ModelSettings = {
   provider: 'doubao',
   displayName: '豆包',
-  imageModel: 'doubao-seedream-5-0-260128',
+  imageModel: DEFAULT_IMAGE_MODEL,
   apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
   apiKey: '',
   promptPrefix: '',
@@ -40,13 +45,16 @@ const DEFAULT_MODEL_SETTINGS: ModelSettings = {
 };
 
 const DEFAULT_MONITOR_CONFIG_BASE: Omit<ProductMonitorConfig, 'updatedAt'> = {
-  categories: ['餐桌'],
+  categories: ['餐椅'],
   customCategories: [],
   cycle: 'daily',
   runTime: '09:00',
   weekDay: 1,
   monthDay: 1,
 };
+
+let projectsDbPromise: Promise<IDBDatabase> | null = null;
+let projectStorageReadyPromise: Promise<void> | null = null;
 
 function safeJsonParse<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -61,68 +69,243 @@ function persist<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function createEmptyOpenPencilDocument() {
-  return {
-    id: 'doc_root',
-    type: 'document',
-    name: 'Document',
-    children: [
-      {
-        id: 'page_1',
-        type: 'page',
-        name: 'Page 1',
-        x: 0,
-        y: 0,
-        width: 1920,
-        height: 1080,
-        children: [],
-      },
-    ],
-  } as any;
+function hasIndexedDb() {
+  return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
 }
 
-export function getProjects(): Project[] {
+function getProjectsFromLocalStorage(): Project[] {
   const projects = safeJsonParse<Project[]>(localStorage.getItem(PROJECTS_KEY), []);
-  return Array.isArray(projects) ? projects : [];
+  return Array.isArray(projects)
+    ? [...projects].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+    : [];
 }
 
-export function getProject(id: string): Project | null {
-  return getProjects().find((project) => project.id === id) || null;
-}
-
-export function saveProjects(projects: Project[]) {
+function saveProjectsToLocalStorage(projects: Project[]) {
   persist(PROJECTS_KEY, projects);
 }
 
-export function saveProject(project: Project) {
-  const projects = getProjects();
-  const index = projects.findIndex((item) => item.id === project.id);
-  if (index >= 0) {
-    projects[index] = { ...project, updatedAt: Date.now() };
-  } else {
-    projects.unshift({ ...project, updatedAt: Date.now() });
+function openProjectsDatabase(): Promise<IDBDatabase> {
+  if (!hasIndexedDb()) {
+    return Promise.reject(new Error('IndexedDB unavailable'));
   }
-  saveProjects(projects);
+
+  if (projectsDbPromise) {
+    return projectsDbPromise;
+  }
+
+  projectsDbPromise = new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(PROJECTS_DB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PROJECTS_STORE_NAME)) {
+        db.createObjectStore(PROJECTS_STORE_NAME, { keyPath: 'id' });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Open IndexedDB failed'));
+  });
+
+  return projectsDbPromise;
 }
 
-export function createNewProject(name: string): Project {
+async function getAllProjectsFromIndexedDb(): Promise<Project[]> {
+  const db = await openProjectsDatabase();
+  return new Promise<Project[]>((resolve, reject) => {
+    const transaction = db.transaction(PROJECTS_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(PROJECTS_STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => resolve((request.result as Project[]) || []);
+    request.onerror = () => reject(request.error || new Error('Read IndexedDB projects failed'));
+  });
+}
+
+async function getProjectFromIndexedDb(id: string): Promise<Project | null> {
+  const db = await openProjectsDatabase();
+  return new Promise<Project | null>((resolve, reject) => {
+    const transaction = db.transaction(PROJECTS_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(PROJECTS_STORE_NAME);
+    const request = store.get(id);
+    request.onsuccess = () => resolve((request.result as Project | undefined) || null);
+    request.onerror = () => reject(request.error || new Error('Read IndexedDB project failed'));
+  });
+}
+
+async function putProjectIntoIndexedDb(project: Project): Promise<void> {
+  const db = await openProjectsDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PROJECTS_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(PROJECTS_STORE_NAME);
+    const request = store.put(project);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error('Write IndexedDB project failed'));
+    transaction.onabort = () => reject(transaction.error || new Error('Write IndexedDB project aborted'));
+  });
+}
+
+async function deleteProjectFromIndexedDb(projectId: string): Promise<void> {
+  const db = await openProjectsDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PROJECTS_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(PROJECTS_STORE_NAME);
+    const request = store.delete(projectId);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error('Delete IndexedDB project failed'));
+    transaction.onabort = () => reject(transaction.error || new Error('Delete IndexedDB project aborted'));
+  });
+}
+
+async function ensureProjectStorageReady(): Promise<void> {
+  if (!hasIndexedDb()) return;
+  if (!projectStorageReadyPromise) {
+    projectStorageReadyPromise = (async () => {
+      if (localStorage.getItem(PROJECTS_LS_MIGRATION_KEY) === '1') return;
+
+      const legacyProjects = getProjectsFromLocalStorage();
+      if (legacyProjects.length > 0) {
+        const existingProjects = await getAllProjectsFromIndexedDb();
+        const merged = new Map<string, Project>();
+
+        for (const project of existingProjects) {
+          merged.set(project.id, project);
+        }
+
+        for (const project of legacyProjects) {
+          const existing = merged.get(project.id);
+          if (!existing || Number(project.updatedAt || 0) >= Number(existing.updatedAt || 0)) {
+            merged.set(project.id, project);
+          }
+        }
+
+        for (const project of merged.values()) {
+          await putProjectIntoIndexedDb(project);
+        }
+      }
+
+      localStorage.removeItem(PROJECTS_KEY);
+      localStorage.setItem(PROJECTS_LS_MIGRATION_KEY, '1');
+    })();
+  }
+
+  await projectStorageReadyPromise;
+}
+
+function sortProjects(projects: Project[]) {
+  return [...projects].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0));
+}
+
+export async function getProjects(): Promise<Project[]> {
+  if (!hasIndexedDb()) {
+    return getProjectsFromLocalStorage();
+  }
+
+  await ensureProjectStorageReady();
+  return sortProjects(await getAllProjectsFromIndexedDb());
+}
+
+export async function getProject(id: string): Promise<Project | null> {
+  if (!hasIndexedDb()) {
+    return getProjectsFromLocalStorage().find((project) => project.id === id) || null;
+  }
+
+  await ensureProjectStorageReady();
+  return getProjectFromIndexedDb(id);
+}
+
+export async function getMostRecentProject(): Promise<Project | null> {
+  const projects = await getProjects();
+  return projects[0] || null;
+}
+
+export async function saveProjects(projects: Project[]) {
+  if (!hasIndexedDb()) {
+    saveProjectsToLocalStorage(projects);
+    return;
+  }
+
+  await ensureProjectStorageReady();
+  for (const project of projects) {
+    await putProjectIntoIndexedDb({ ...project, updatedAt: Date.now() });
+  }
+}
+
+export async function saveProject(project: Project) {
+  const normalizedProject = { ...project, updatedAt: Date.now() };
+
+  if (!hasIndexedDb()) {
+    const projects = getProjectsFromLocalStorage().filter((item) => item.id !== normalizedProject.id);
+    projects.unshift(normalizedProject);
+    saveProjectsToLocalStorage(projects);
+    return;
+  }
+
+  await ensureProjectStorageReady();
+  await putProjectIntoIndexedDb(normalizedProject);
+}
+
+export async function createNewProject(name: string): Promise<Project> {
   const currentUser = getCurrentUser();
+  const sessionId = uuidv4();
   const project: Project = {
     id: uuidv4(),
-    name: name.trim() || '未命名项目',
+    name: name.trim() || 'AI 设计项目',
     items: [],
-    sessions: [{ id: uuidv4(), title: 'New chat', messages: [], createdAt: Date.now() }],
+    sessions: [{ id: sessionId, title: 'New chat', messages: [], createdAt: Date.now() }],
+    currentSessionId: sessionId,
     view: { ...DEFAULT_VIEW },
+    selectedImageModel: DEFAULT_IMAGE_MODEL,
+    sceneBySessionId: { [sessionId]: 'general' },
     updatedAt: Date.now(),
     creatorId: currentUser.id,
     creatorName: currentUser.name,
   };
-  saveProject(project);
+  await saveProject(project);
   return project;
 }
 
-export function deleteProject(projectId: string) {
-  saveProjects(getProjects().filter((project) => project.id !== projectId));
+export async function deleteProject(projectId: string) {
+  if (!hasIndexedDb()) {
+    saveProjectsToLocalStorage(getProjectsFromLocalStorage().filter((project) => project.id !== projectId));
+    return;
+  }
+
+  await ensureProjectStorageReady();
+  await deleteProjectFromIndexedDb(projectId);
+}
+
+export async function migrateLegacyAiVisualSnapshotToProject(): Promise<Project | null> {
+  if (typeof window === 'undefined') return null;
+  if (window.localStorage.getItem(LEGACY_AI_VISION_MIGRATION_KEY) === '1') {
+    return null;
+  }
+
+  const snapshot = parseLegacyWorkspaceSnapshot(
+    window.localStorage.getItem(LEGACY_AI_VISION_STORAGE_KEY)
+  );
+
+  if (!snapshot) {
+    return null;
+  }
+
+  const currentUser = getCurrentUser();
+  const project: Project = {
+    id: uuidv4(),
+    name: snapshot.boardName.trim() || 'AI 视觉项目',
+    items: snapshot.items,
+    sessions: snapshot.sessions,
+    currentSessionId: snapshot.currentSessionId,
+    view: snapshot.view,
+    selectedImageModel: snapshot.selectedImageModel,
+    sceneBySessionId: snapshot.sceneBySessionId,
+    updatedAt: Date.now(),
+    creatorId: currentUser.id,
+    creatorName: currentUser.name,
+  };
+
+  await saveProject(project);
+  window.localStorage.setItem(LEGACY_AI_VISION_MIGRATION_KEY, '1');
+  return project;
 }
 
 export async function getBrandTemplatesHydrated(): Promise<BrandTemplate[]> {
@@ -163,49 +346,6 @@ export function saveModelSettings(settings: ModelSettings) {
   persist(MODEL_SETTINGS_KEY, { ...settings, updatedAt: Date.now() });
 }
 
-export function getOpenPencilProjects(): OpenPencilProject[] {
-  const parsed = safeJsonParse<OpenPencilProject[]>(localStorage.getItem(OPEN_PENCIL_PROJECTS_KEY), []);
-  return Array.isArray(parsed) ? parsed : [];
-}
-
-export function saveOpenPencilProjects(projects: OpenPencilProject[]) {
-  persist(OPEN_PENCIL_PROJECTS_KEY, projects);
-}
-
-export function getOpenPencilProject(id: string): OpenPencilProject | null {
-  return getOpenPencilProjects().find((project) => project.id === id) || null;
-}
-
-export function saveOpenPencilProject(project: OpenPencilProject) {
-  const projects = getOpenPencilProjects();
-  const index = projects.findIndex((item) => item.id === project.id);
-  if (index >= 0) {
-    projects[index] = { ...project, updatedAt: Date.now() };
-  } else {
-    projects.unshift({ ...project, updatedAt: Date.now() });
-  }
-  saveOpenPencilProjects(projects);
-}
-
-export function createOpenPencilProject(name: string): OpenPencilProject {
-  const user = getCurrentUser();
-  const project: OpenPencilProject = {
-    id: uuidv4(),
-    name: name.trim() || 'OpenPencil Project',
-    document: createEmptyOpenPencilDocument(),
-    sessions: [{ id: uuidv4(), title: 'New chat', messages: [], createdAt: Date.now() }],
-    updatedAt: Date.now(),
-    creatorId: user.id,
-    creatorName: user.name,
-  };
-  saveOpenPencilProject(project);
-  return project;
-}
-
-export function deleteOpenPencilProject(projectId: string) {
-  saveOpenPencilProjects(getOpenPencilProjects().filter((project) => project.id !== projectId));
-}
-
 export function getOpenLovartProjects(): OpenLovartProject[] {
   const parsed = safeJsonParse<OpenLovartProject[]>(localStorage.getItem(OPEN_LOVART_PROJECTS_KEY), []);
   return Array.isArray(parsed) ? parsed : [];
@@ -220,13 +360,8 @@ export function getOpenLovartProject(id: string): OpenLovartProject | null {
 }
 
 export function saveOpenLovartProject(project: OpenLovartProject) {
-  const projects = getOpenLovartProjects();
-  const index = projects.findIndex((item) => item.id === project.id);
-  if (index >= 0) {
-    projects[index] = { ...project, updatedAt: Date.now() };
-  } else {
-    projects.unshift({ ...project, updatedAt: Date.now() });
-  }
+  const projects = getOpenLovartProjects().filter((item) => item.id !== project.id);
+  projects.unshift({ ...project, updatedAt: Date.now() });
   saveOpenLovartProjects(projects);
 }
 

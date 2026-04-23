@@ -1,5 +1,3 @@
-import type { PenDocument } from '@zseven-w/pen-types';
-
 export type ItemType = 'image' | 'video' | 'text' | 'drawing' | 'shape' | 'loading';
 
 export interface CanvasPoint {
@@ -52,6 +50,8 @@ export interface BrandTemplate {
   image: string;
 }
 
+export type AiVisionSceneTab = 'general' | 'main_image' | 'detail_image' | 'buyer_show';
+
 export type ProductMonitorCycle = 'daily' | 'weekly' | 'monthly';
 
 export type ProductMonitorRunStatus = 'success' | 'warning' | 'failed';
@@ -81,9 +81,7 @@ export type AppRoute =
   | 'operations'
   | 'design'
   | 'ai_visual'
-  | 'openpencil_lab'
   | 'openlovart'
-  | 'canvas'
   | 'profile'
   | 'admin';
 
@@ -105,17 +103,10 @@ export interface Project {
   name: string;
   items: CanvasItem[];
   sessions: ChatSession[];
+  currentSessionId?: string;
   view: ViewState;
-  updatedAt: number;
-  creatorId?: string;
-  creatorName?: string;
-}
-
-export interface OpenPencilProject {
-  id: string;
-  name: string;
-  document: PenDocument;
-  sessions: ChatSession[];
+  selectedImageModel?: string;
+  sceneBySessionId?: Record<string, AiVisionSceneTab>;
   updatedAt: number;
   creatorId?: string;
   creatorName?: string;

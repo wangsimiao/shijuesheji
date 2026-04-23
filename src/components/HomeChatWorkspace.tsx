@@ -92,13 +92,13 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
     }
 
     if (scene === 'product') {
-      return '已进入产品场景：可继续输入需求，我会给出智能开品建议。';
+      return '已进入产品场景：可以继续输入需求，我会给出智能开品建议。';
     }
     if (scene === 'operations') {
-      return '已进入运营场景：可继续选择产品定位、主图策划、详情策划、买家秀策划、标题策划。';
+      return '已进入运营场景：可以继续选择产品定位、主图策划、详情策划、买家秀策划或标题策划。';
     }
-    onNavigate?.('ai_visual');
-    return '正在跳转到 AI 设计创建新项目。';
+    onNavigate?.('design');
+    return '正在进入 AI设计 项目页。';
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -218,7 +218,7 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
                     <select
                       value={knowledgeBase}
                       onChange={(event) => setKnowledgeBase(event.target.value)}
-                      className="rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm"
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none"
                     >
                       {KNOWLEDGE_OPTIONS.map((option) => (
                         <option key={option} value={option}>
@@ -226,11 +226,12 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
                         </option>
                       ))}
                     </select>
-                    <div className="flex items-center gap-2">
+
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,160px)_1fr]">
                       <select
                         value={model}
                         onChange={(event) => setModel(event.target.value)}
-                        className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm"
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none"
                       >
                         {CHAT_MODEL_OPTIONS.map((option) => (
                           <option key={option.value || 'default'} value={option.value}>
@@ -243,28 +244,29 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
                         <input
                           value={customModel}
                           onChange={(event) => setCustomModel(event.target.value)}
-                          placeholder="输入模型 ID"
-                          className="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 text-sm"
+                          placeholder="输入自定义模型 ID"
+                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
                         />
                       ) : null}
                     </div>
                   </div>
                 ) : null}
 
-                <div className="flex items-end gap-2">
+                <div className="flex gap-3">
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
-                    rows={3}
-                    placeholder="输入你的问题或需求..."
-                    className="min-h-[78px] flex-1 resize-none rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-sky-400"
+                    placeholder="输入你的问题或任务..."
+                    rows={4}
+                    className="min-h-[120px] flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500"
                   />
                   <button
                     type="submit"
-                    disabled={!input.trim() || loading}
-                    className="rounded-xl bg-sky-500 p-2.5 text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={loading || !input.trim()}
+                    className="inline-flex h-fit items-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Send className="h-4 w-4" />
+                    发送
                   </button>
                 </div>
               </div>
@@ -273,22 +275,22 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
         </section>
 
         {showHistory ? (
-          <aside className="h-full w-72 border-l border-white/10 bg-[#111a2f] p-3">
-            <h3 className="mb-2 text-sm font-semibold text-white">历史记录</h3>
-            <div className="space-y-2 overflow-y-auto">
+          <aside className="w-[280px] shrink-0 border-l border-white/10 bg-[#111827] p-4">
+            <h3 className="text-sm font-semibold text-white">历史对话</h3>
+            <div className="mt-3 space-y-2">
               {sessions.map((session) => (
                 <button
                   key={session.id}
                   type="button"
                   onClick={() => setCurrentSessionId(session.id)}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-xs ${
+                  className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
                     session.id === currentSessionId
-                      ? 'bg-sky-500/25 text-sky-100'
-                      : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                      ? 'border-sky-400/40 bg-sky-500/10 text-sky-100'
+                      : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
                   }`}
                 >
-                  <div className="truncate">{session.title}</div>
-                  <div className="mt-1 text-[11px] text-slate-500">
+                  <div className="truncate font-medium">{session.title || '新对话'}</div>
+                  <div className="mt-1 text-xs text-slate-400">
                     {new Date(session.createdAt).toLocaleString('zh-CN')}
                   </div>
                 </button>
