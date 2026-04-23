@@ -86,8 +86,7 @@ function HistoryMenu({
   sessions,
   currentSessionId,
   onSwitchSession,
-  onCreateSession,
-}: Pick<ChatSidebarProps, 'sessions' | 'currentSessionId' | 'onSwitchSession' | 'onCreateSession'>) {
+}: Pick<ChatSidebarProps, 'sessions' | 'currentSessionId' | 'onSwitchSession'>) {
   return (
     <MenuPanel>
       <div className={`ai-vision-chat-menu-scroll max-h-72 space-y-1 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
@@ -109,15 +108,6 @@ function HistoryMenu({
           </button>
         ))}
       </div>
-
-      <button
-        type="button"
-        onClick={onCreateSession}
-        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-[18px] bg-white/[0.06] px-3 py-2 text-[13px] text-white transition hover:bg-white/[0.1]"
-      >
-        <Plus className="h-4 w-4" />
-        新建对话
-      </button>
     </MenuPanel>
   );
 }
@@ -352,7 +342,6 @@ export default function ChatSidebar({
                       sessions={sessions}
                       currentSessionId={currentSessionId}
                       onSwitchSession={onSwitchSession}
-                      onCreateSession={onCreateSession}
                     />
                   </div>
                 ) : null}

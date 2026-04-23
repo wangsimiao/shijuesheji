@@ -321,7 +321,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
         <section className="relative mb-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] p-8 shadow-[0_28px_80px_rgba(0,0,0,0.35)]">
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-indigo-500/25 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-28 left-24 h-64 w-64 rounded-full bg-cyan-500/20 blur-3xl" />
-          <div className="relative">
+          <div className="relative flex flex-wrap items-start justify-between gap-4">
             <p className="text-xs uppercase tracking-[0.22em] text-slate-400">AI Design Workspace</p>
             <h2 className="mt-3 text-[34px] font-semibold tracking-[0.01em] text-white">众唯 AI 设计</h2>
             <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
@@ -329,6 +329,16 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
             </p>
           </div>
         </section>
+        <div className="mb-5 flex justify-end">
+          <button
+            type="button"
+            onClick={() => onNavigate('admin')}
+            className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12]"
+          >
+            <Settings2 className="h-4 w-4" />
+            模型设置
+          </button>
+        </div>
         {isProjectsLoading ? (
           <Placeholder title="正在加载项目" description="正在从本地项目库读取 AI 设计项目..." />
         ) : (
@@ -633,7 +643,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
   return (
     <div className="flex h-screen bg-[#0b1220] text-slate-100">
-      <aside className="flex w-52 shrink-0 flex-col border-r border-white/10 bg-[#0f172a] p-3">
+      <aside className="hidden w-52 shrink-0 flex-col border-r border-white/10 bg-[#0f172a] p-3">
         <div className="mb-3 flex items-center gap-2.5 px-1">
           <img src="/zhongwei-logo.svg" alt="众唯 logo" className="h-8 w-8 rounded-[9px]" />
           <h1 className="text-base font-semibold tracking-[0.01em] text-white">众唯</h1>
