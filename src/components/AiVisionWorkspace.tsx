@@ -60,6 +60,27 @@ interface AiVisionWorkspaceProps {
   onBack: () => void;
 }
 
+function normalizeProjectName(value: string) {
+  return value.replace(/\s+/g, '').trim();
+}
+
+function shouldAutoRenameProject(name: string) {
+  const normalized = normalizeProjectName(name);
+  return (
+    normalized.length === 0 ||
+    normalized === normalizeProjectName(DEFAULT_BOARD_NAME) ||
+    normalized === 'AI设计项目' ||
+    normalized === 'AI视觉项目' ||
+    normalized === 'AI视觉' ||
+    normalized === 'AI设计'
+  );
+}
+
+function deriveProjectNameFromPrompt(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, ' ').trim();
+  return normalized.slice(0, 18) || DEFAULT_BOARD_NAME;
+}
+
 export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
@@ -98,6 +119,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
   const brandTemplateInputRef = useRef<HTMLInputElement | null>(null);
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
   const brandMenuRef = useRef<HTMLDivElement | null>(null);
+  const hasManualBoardNameEditRef = useRef(false);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
 
@@ -995,6 +1017,14 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       content: '正在处理...',
     };
 
+    if (
+      currentSession.messages.length === 0 &&
+      !hasManualBoardNameEditRef.current &&
+      shouldAutoRenameProject(boardName)
+    ) {
+      setBoardName(deriveProjectNameFromPrompt(effectiveText));
+    }
+
     setChatInput('');
     setChatInputImages([]);
     setIsChatLoading(true);
@@ -1150,7 +1180,10 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
             <div className="h-5 w-px bg-white/[0.08]" />
             <input
               value={boardName}
-              onChange={(event) => setBoardName(event.target.value)}
+              onChange={(event) => {
+                hasManualBoardNameEditRef.current = true;
+                setBoardName(event.target.value);
+              }}
               className="w-[210px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-base font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
             />
           </div>
@@ -1210,6 +1243,7 @@ export default function AiVisionWorkspace({ project, onBack }: AiVisionWorkspace
       </div>
 
       <ChatSidebar
+        projectTitle={boardName.trim() || DEFAULT_BOARD_NAME}
         currentSession={currentSession}
         sessions={sessions}
         currentSessionId={currentSessionId}
