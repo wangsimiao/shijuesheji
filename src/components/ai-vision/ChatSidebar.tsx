@@ -74,10 +74,7 @@ function HistoryMenu({
 }: Pick<ChatSidebarProps, 'sessions' | 'currentSessionId' | 'onSwitchSession' | 'onCreateSession'>) {
   return (
     <MenuPanel>
-      <div
-        className={`max-h-72 space-y-1 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}
-        style={{ overscrollBehavior: 'contain', touchAction: 'pan-y' }}
-      >
+      <div className={`max-h-72 space-y-1 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
         {sessions.map((session) => (
           <button
             key={session.id}
@@ -117,10 +114,7 @@ function BrandMenu({
   return (
     <MenuPanel>
       {brandTemplates.length > 0 ? (
-        <div
-          className={`max-h-64 space-y-2 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}
-          style={{ overscrollBehavior: 'contain', touchAction: 'pan-y' }}
-        >
+        <div className={`max-h-64 space-y-2 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
           {brandTemplates.map((template) => (
             <button
               key={template.id}
@@ -272,10 +266,7 @@ export default function ChatSidebar({
 
           <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-[#191c23] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div
-                className={`min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}
-                style={{ overscrollBehavior: 'contain', touchAction: 'pan-y' }}
-              >
+              <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}>
                 {currentSession?.messages.length ? (
                   <div className="space-y-4">
                     {currentSession.messages.map((message) => {
@@ -344,10 +335,7 @@ export default function ChatSidebar({
                 </div>
 
                 <div className="mt-0 rounded-[24px] bg-[#1d2129] px-2.5 pb-2.5 pt-2">
-                  <div
-                    className={`flex items-center gap-1.5 overflow-x-auto px-0.5 pb-1 ${HIDDEN_SCROLLBAR}`}
-                    style={{ overscrollBehavior: 'contain', touchAction: 'pan-x' }}
-                  >
+                  <div className={`flex items-center gap-1.5 overflow-x-auto px-0.5 pb-1 ${HIDDEN_SCROLLBAR}`}>
                     {chatInputImages.map((item) => (
                       <div key={item.id} className="group relative h-11 w-11 shrink-0">
                         <img

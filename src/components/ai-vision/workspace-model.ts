@@ -46,7 +46,6 @@ export type ViewportSize = {
 
 type PanInteraction = {
   type: 'pan';
-  pointerId: number;
   startClientX: number;
   startClientY: number;
   originX: number;
@@ -55,7 +54,6 @@ type PanInteraction = {
 
 type DragInteraction = {
   type: 'drag';
-  pointerId: number;
   itemId: string;
   startClientX: number;
   startClientY: number;
@@ -66,20 +64,17 @@ type DragInteraction = {
 
 type DrawInteraction = {
   type: 'draw';
-  pointerId: number;
   points: CanvasPoint[];
 };
 
 type LineCreateInteraction = {
   type: 'line-create';
-  pointerId: number;
   startPoint: CanvasPoint;
   currentPoint: CanvasPoint;
 };
 
 type ResizeInteraction = {
   type: 'resize';
-  pointerId: number;
   itemId: string;
   handle: ResizeHandle;
   startClientX: number;
@@ -95,7 +90,6 @@ type ResizeInteraction = {
 
 type LineEndpointInteraction = {
   type: 'line-endpoint';
-  pointerId: number;
   itemId: string;
   endpointIndex: 0 | 1;
   startClientX: number;
@@ -106,7 +100,6 @@ type LineEndpointInteraction = {
 
 type CropMoveInteraction = {
   type: 'crop-move';
-  pointerId: number;
   itemId: string;
   startClientX: number;
   startClientY: number;
@@ -118,7 +111,6 @@ type CropMoveInteraction = {
 
 type CropResizeInteraction = {
   type: 'crop-resize';
-  pointerId: number;
   itemId: string;
   handle: ResizeHandle;
   startClientX: number;
