@@ -125,7 +125,7 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
 
   return (
     <div className="h-screen overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,#1d345a_0%,#0a1020_36%,#070b13_72%)] p-6">
-      <div className="mx-auto max-w-[1120px] space-y-6">
+      <div className="mx-auto max-w-[1560px] space-y-6">
         <section className="rounded-3xl border border-white/10 bg-[#0e1524]/95 p-6 shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>

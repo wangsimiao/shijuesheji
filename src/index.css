@@ -56,3 +56,57 @@ body.ai-vision-workspace-active #root {
 .ai-vision-workspace.ai-vision-gesture-lock header {
   pointer-events: none;
 }
+
+@keyframes ai-loader-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes ai-loader-spin-slow {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ai-loader-spin-reverse {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes ai-loader-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.ai-loader-float {
+  animation: ai-loader-float 3.4s ease-in-out infinite;
+}
+
+.ai-loader-spin-slow {
+  animation: ai-loader-spin-slow 3.8s linear infinite;
+}
+
+.ai-loader-spin-reverse {
+  animation: ai-loader-spin-reverse 5.8s linear infinite;
+}
+
+.ai-loader-shimmer {
+  background-size: 200% 100%;
+  animation: ai-loader-shimmer 2.2s linear infinite;
+}

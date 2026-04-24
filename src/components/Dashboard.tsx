@@ -38,6 +38,36 @@ function Placeholder({ title, description }: { title: string; description: strin
   );
 }
 
+function DesignProjectsLoading() {
+  const skeletonCards = Array.from({ length: 7 });
+
+  return (
+    <div>
+
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+        <div className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151a25] p-4">
+          <div className="ai-loader-shimmer h-full w-full rounded-[14px] bg-[linear-gradient(90deg,rgba(30,41,59,0.55)_0%,rgba(56,189,248,0.2)_50%,rgba(30,41,59,0.55)_100%)]" />
+        </div>
+
+        {skeletonCards.map((_, index) => (
+          <article
+            key={`project-loading-${index}`}
+            className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3"
+          >
+            <div className="ai-loader-shimmer aspect-[1.44] overflow-hidden rounded-[14px] bg-[linear-gradient(90deg,rgba(30,41,59,0.6)_0%,rgba(56,189,248,0.22)_50%,rgba(30,41,59,0.6)_100%)]" />
+            <div className="mt-3 space-y-2.5 px-1">
+              <div className="h-3.5 w-[78%] rounded-full bg-white/10 animate-pulse" />
+              <div className="h-3.5 w-[52%] rounded-full bg-white/10 animate-pulse" />
+              <div className="h-3 w-[36%] rounded-full bg-white/10/80 animate-pulse" />
+            </div>
+          </article>
+        ))}
+      </div>
+
+    </div>
+  );
+}
+
 function formatProjectTimestamp(timestamp: number) {
   return new Date(timestamp).toLocaleString('zh-CN', {
     year: 'numeric',
@@ -217,7 +247,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
         </header>
 
         {isProjectsLoading ? (
-          <Placeholder title="正在加载项目" description="正在从本地项目库读取 AI 设计项目..." />
+          <DesignProjectsLoading />
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
             <button
