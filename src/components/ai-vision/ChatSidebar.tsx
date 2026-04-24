@@ -667,6 +667,24 @@ export default function ChatSidebar({
                         void onSendMessage();
                       }
                     }}
+                    onPaste={(event) => {
+                      const clipboardData = event.clipboardData;
+                      if (!clipboardData) return;
+                      
+                      const items = clipboardData.items;
+                      if (!items) return;
+                      
+                      for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        if (item.kind === 'file' && item.type.indexOf('image') === 0) {
+                          const file = item.getAsFile();
+                          if (file) {
+                            event.preventDefault();
+                            void onUploadReferenceImage(file);
+                          }
+                        }
+                      }
+                    }}
                     rows={4}
                     placeholder="描述你想继续推进的画面..."
                     className="mt-1 min-h-[112px] w-full resize-none bg-transparent px-1.5 py-1.5 text-[13px] leading-6 text-white outline-none placeholder:text-slate-500"
