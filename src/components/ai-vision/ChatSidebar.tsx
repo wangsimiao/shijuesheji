@@ -342,6 +342,9 @@ export default function ChatSidebar({
   onSendMessage,
 }: ChatSidebarProps) {
   const canSend = !isChatLoading && (chatInput.trim().length > 0 || chatInputImages.length > 0);
+  const hasImageLoadingMessage = Boolean(
+    currentSession?.messages.some((message) => message.role === 'assistant' && message.isImageLoading)
+  );
   const title = projectTitle.trim() || '未命名项目';
   const activeBrandName =
     brandSpecs.find((item) => item.id === activeBrandSpecId)?.brandName || '未选择';
@@ -537,7 +540,7 @@ export default function ChatSidebar({
                   </div>
                 )}
 
-                {isChatLoading ? (
+                {isChatLoading && !hasImageLoadingMessage ? (
                   <div className="mt-3.5 flex justify-start">
                     <div className="w-full text-[0px] leading-none">
                       <div className="block w-full max-w-[50%] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#222833]">
