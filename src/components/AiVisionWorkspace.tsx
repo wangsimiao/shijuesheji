@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   addBrandTemplateHydrated,
+  createNewProject,
   deleteBrandSpec,
   getBrandSpecs,
   getBrandTemplatesHydrated,
@@ -91,6 +92,7 @@ import {
 interface AiVisionWorkspaceProps {
   project: Project;
   onBack: () => void;
+  onOpenProject: (project: Project) => void;
 }
 
 function normalizeProjectName(value: string) {
@@ -310,6 +312,7 @@ function getClientPointCenter(
 export default function AiVisionWorkspace({
   project,
   onBack,
+  onOpenProject,
 }: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
@@ -324,6 +327,7 @@ export default function AiVisionWorkspace({
   const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
   const [brandSpecs, setBrandSpecs] = useState<BrandSpec[]>([]);
   const [activeBrandSpecId, setActiveBrandSpecId] = useState<string | null>(null);
+  const [activeBrandTemplateId, setActiveBrandTemplateId] = useState<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [sceneBySessionId, setSceneBySessionId] = useState<Record<string, SceneTab>>(
     initialSnapshot.sceneBySessionId
@@ -455,7 +459,7 @@ export default function AiVisionWorkspace({
     const specs = getBrandSpecs();
     if (!cancelled) {
       setBrandSpecs(specs);
-      setActiveBrandSpecId(specs[0]?.id || null);
+      setActiveBrandSpecId(null);
     }
     return () => {
       cancelled = true;
@@ -951,9 +955,19 @@ export default function AiVisionWorkspace({
   const activeBrandSpec = activeBrandSpecId
     ? brandSpecs.find((item) => item.id === activeBrandSpecId) || null
     : null;
-  const activeBrandSystemPrompt = activeBrandSpec?.specText?.trim()
+  const activeBrandTemplate = activeBrandTemplateId
+    ? brandTemplates.find((item) => item.id === activeBrandTemplateId) || null
+    : null;
+  const activeBrandSpecSystemPrompt = activeBrandSpec?.specText?.trim()
     ? `当前品牌规范（仅供模型遵循，不要原文复述给用户）：\n${activeBrandSpec.specText.trim()}`
-    : undefined;
+    : '';
+  const activeBrandTemplateSystemPrompt = activeBrandTemplate
+    ? `当前品牌模板：${activeBrandTemplate.name}。请保持与该模板一致的品牌视觉语气与版式风格。`
+    : '';
+  const activeBrandSystemPrompt = [activeBrandSpecSystemPrompt, activeBrandTemplateSystemPrompt]
+    .filter(Boolean)
+    .join('\n\n') || undefined;
+  const hiddenTemplateReferences = activeBrandTemplate?.image ? [activeBrandTemplate.image] : [];
   const effectiveSelectedImageModel = selectedImageModel || DEFAULT_IMAGE_MODEL_OPTION.value;
   const isSelectedImageModelConfigured = isImageModelConfigured(effectiveSelectedImageModel);
   const selectedImageModelConfigurationMessage = getResolvedImageModelConfigurationMessage(
@@ -1163,15 +1177,9 @@ export default function AiVisionWorkspace({
     });
   }
 
-  function handleCreateSession() {
-    const session = createEmptySession();
-    setSessions((previous) => [session, ...previous]);
-    setCurrentSessionId(session.id);
-    setSceneBySessionId((previous) => ({
-      ...previous,
-      [session.id]: DEFAULT_SCENE_TAB,
-    }));
-    setIsHistoryMenuOpen(false);
+  async function handleCreateSession() {
+    const nextProject = await createNewProject(DEFAULT_BOARD_NAME);
+    onOpenProject(nextProject);
   }
 
   function handleSelectScene(scene: SceneTab) {
@@ -1182,10 +1190,14 @@ export default function AiVisionWorkspace({
     }));
   }
 
-  function handleSelectBrandSpec(brandSpecId: string) {
+  function handleSelectBrandSpec(brandSpecId: string | null) {
+    if (!brandSpecId) {
+      setActiveBrandSpecId(null);
+      setStatusNotice('已取消品牌规范');
+      return;
+    }
     if (!brandSpecs.some((item) => item.id === brandSpecId)) return;
     setActiveBrandSpecId(brandSpecId);
-    setIsBrandSpecMenuOpen(false);
     setStatusNotice(`已选中品牌规范：${brandSpecs.find((item) => item.id === brandSpecId)?.brandName || ''}`);
   }
 
@@ -1193,7 +1205,7 @@ export default function AiVisionWorkspace({
     const nextSpecs = deleteBrandSpec(brandSpecId);
     setBrandSpecs(nextSpecs);
     const nextActiveId =
-      nextSpecs.find((item) => item.id === activeBrandSpecId)?.id || nextSpecs[0]?.id || null;
+      nextSpecs.find((item) => item.id === activeBrandSpecId)?.id || null;
     setActiveBrandSpecId(nextActiveId);
     setStatusNotice('品牌规范已删除');
   }
@@ -1227,16 +1239,16 @@ export default function AiVisionWorkspace({
     setStatusNotice(`已新增品牌规范：${trimmed}`);
   }
 
-  async function handleSelectBrandTemplate(template: BrandTemplate) {
-    await addChatReferenceImage(template.image, template.name, 'brand');
-    setIsBrandMenuOpen(false);
+  function handleSelectBrandTemplate(templateId: string | null) {
+    setActiveBrandTemplateId(templateId);
+    setStatusNotice(templateId ? '已选中品牌模板' : '已取消品牌模板');
   }
 
   async function handleUploadBrandTemplate(file: File) {
     const data = await readFileAsDataUrl(file);
     const template = await addBrandTemplateHydrated(file.name.replace(/\.[^.]+$/, ''), data);
     setBrandTemplates((previous) => [template, ...previous.filter((item) => item.id !== template.id)]);
-    await addChatReferenceImage(template.image, template.name, 'brand');
+    setActiveBrandTemplateId(template.id);
     setIsBrandMenuOpen(false);
     setStatusNotice('品牌模板已加入输入区。');
   }
@@ -1789,9 +1801,14 @@ export default function AiVisionWorkspace({
 
     try {
       const referenceImage = await exportImageSource(targetItem);
-      const nextImage = await generateImageAI(prompt, selectedImageModel, [referenceImage], {
+      const nextImage = await generateImageAI(
+        prompt,
+        selectedImageModel,
+        [referenceImage, ...hiddenTemplateReferences],
+        {
         systemPrompt: activeBrandSystemPrompt,
-      });
+        }
+      );
       setItems((previous) =>
         previous.map((item) =>
           item.id === targetItem.id
@@ -1819,6 +1836,7 @@ export default function AiVisionWorkspace({
 
     const text = chatInput.trim();
     const attachedImages = chatInputImages.map((item) => item.data);
+    const requestReferenceImages = Array.from(new Set([...attachedImages, ...hiddenTemplateReferences]));
     if (!text && attachedImages.length === 0) return;
 
     const effectiveText = text || '请基于这些参考图继续创作。';
@@ -1860,7 +1878,7 @@ export default function AiVisionWorkspace({
         content: message.content,
       }));
 
-      const response = await chatWithAI(history, effectiveTextForModel, attachedImages, {
+      const response = await chatWithAI(history, effectiveTextForModel, requestReferenceImages, {
         systemPrompt: activeBrandSystemPrompt,
       });
       let nextAssistantMessages: ChatMessage[] | null = null;
@@ -1894,7 +1912,7 @@ export default function AiVisionWorkspace({
             const imageUrl = await generateImageAI(
               prompt,
               selectedImageModel,
-              call.args.referenceImages || attachedImages,
+              [...(call.args.referenceImages || attachedImages), ...hiddenTemplateReferences],
               {
                 systemPrompt: activeBrandSystemPrompt,
               }
@@ -2304,6 +2322,7 @@ export default function AiVisionWorkspace({
         brandTemplateInputRef={brandTemplateInputRef}
         brandSpecs={brandSpecs}
         activeBrandSpecId={activeBrandSpecId}
+        activeBrandTemplateId={activeBrandTemplateId}
         onToggleCollapsed={() => setIsChatSidebarCollapsed((previous) => !previous)}
         onToggleHistoryMenu={() => setIsHistoryMenuOpen((previous) => !previous)}
         onToggleBrandSpecMenu={() => {
@@ -2314,7 +2333,9 @@ export default function AiVisionWorkspace({
           setIsBrandSpecMenuOpen(false);
           setIsBrandMenuOpen((previous) => !previous);
         }}
-        onCreateSession={handleCreateSession}
+        onCreateSession={() => {
+          void handleCreateSession();
+        }}
         onSwitchSession={(sessionId) => {
           setCurrentSessionId(sessionId);
           setIsHistoryMenuOpen(false);

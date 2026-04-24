@@ -34,6 +34,7 @@ interface ChatSidebarProps {
   brandTemplates: BrandTemplate[];
   brandSpecs: BrandSpec[];
   activeBrandSpecId: string | null;
+  activeBrandTemplateId: string | null;
   selectedImageModel: string;
   isChatLoading: boolean;
   isCollapsed: boolean;
@@ -59,11 +60,11 @@ interface ChatSidebarProps {
   onSetChatInput: (value: string) => void;
   onRemoveChatImage: (imageId: string) => void;
   onSelectModel: (modelId: string) => void;
-  onSelectBrandSpec: (brandSpecId: string) => void;
+  onSelectBrandSpec: (brandSpecId: string | null) => void;
   onSaveBrandSpec: (brandSpecId: string, specText: string) => Promise<void>;
   onCreateBrandSpec: (brandName: string) => Promise<void>;
   onDeleteBrandSpec: (brandSpecId: string) => Promise<void>;
-  onSelectBrandTemplate: (template: BrandTemplate) => Promise<void>;
+  onSelectBrandTemplate: (templateId: string | null) => void;
   onUploadBrandTemplate: (file: File) => Promise<void>;
   onUploadReferenceImage: (file: File) => Promise<void>;
   onSendMessage: () => Promise<void>;
@@ -115,21 +116,38 @@ function HistoryMenu({
 
 function BrandMenu({
   brandTemplates,
+  activeBrandTemplateId,
   brandTemplateInputRef,
   onSelectBrandTemplate,
-}: Pick<ChatSidebarProps, 'brandTemplates' | 'brandTemplateInputRef' | 'onSelectBrandTemplate'>) {
+}: Pick<
+  ChatSidebarProps,
+  'brandTemplates' | 'activeBrandTemplateId' | 'brandTemplateInputRef' | 'onSelectBrandTemplate'
+>) {
   return (
     <MenuPanel>
+      <button
+        type="button"
+        onClick={() => onSelectBrandTemplate(null)}
+        className={`mb-2 flex w-full items-center justify-between rounded-[14px] px-3 py-2 text-left text-[12px] transition ${
+          !activeBrandTemplateId
+            ? 'bg-cyan-500/12 text-cyan-100'
+            : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
+        }`}
+      >
+        <span>不使用品牌模板</span>
+      </button>
       {brandTemplates.length > 0 ? (
         <div className={`ai-vision-chat-menu-scroll max-h-64 space-y-2 overflow-y-auto pr-1 ${HIDDEN_SCROLLBAR}`}>
           {brandTemplates.map((template) => (
             <button
               key={template.id}
               type="button"
-              onClick={() => {
-                void onSelectBrandTemplate(template);
-              }}
-              className="flex w-full items-center gap-2.5 rounded-[18px] bg-white/[0.03] p-2 text-left transition hover:bg-white/[0.07]"
+              onClick={() => onSelectBrandTemplate(template.id)}
+              className={`flex w-full items-center gap-2.5 rounded-[18px] p-2 text-left transition ${
+                activeBrandTemplateId === template.id
+                  ? 'bg-cyan-500/12'
+                  : 'bg-white/[0.03] hover:bg-white/[0.07]'
+              }`}
             >
               <img
                 src={template.image}
@@ -138,7 +156,7 @@ function BrandMenu({
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium text-white">{template.name}</div>
-                <div className="mt-1 text-[11px] text-slate-400">点击附加到输入区</div>
+                <div className="mt-1 text-[11px] text-slate-400">选中后作为系统约束</div>
               </div>
             </button>
           ))}
@@ -182,10 +200,13 @@ function BrandSpecMenu({
   const [newBrandName, setNewBrandName] = useState('');
 
   useEffect(() => {
-    if (!brandSpecs.length) return;
+    if (!brandSpecs.length) {
+      setSelectedBrandSpecId('');
+      return;
+    }
     const nextId = activeBrandSpecId && brandSpecs.some((item) => item.id === activeBrandSpecId)
       ? activeBrandSpecId
-      : brandSpecs[0].id;
+      : '';
     setSelectedBrandSpecId(nextId);
   }, [activeBrandSpecId, brandSpecs]);
 
@@ -207,10 +228,11 @@ function BrandSpecMenu({
           onChange={(event) => {
             const nextId = event.target.value;
             setSelectedBrandSpecId(nextId);
-            onSelectBrandSpec(nextId);
+            onSelectBrandSpec(nextId || null);
           }}
           className="h-9 w-full rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 text-[12px] text-white outline-none"
         >
+          <option value="">不使用品牌规范</option>
           {brandSpecs.map((spec) => (
             <option key={spec.id} value={spec.id}>
               {spec.brandName}
@@ -285,6 +307,7 @@ export default function ChatSidebar({
   brandTemplates,
   brandSpecs,
   activeBrandSpecId,
+  activeBrandTemplateId,
   selectedImageModel,
   isChatLoading,
   isCollapsed,
@@ -322,6 +345,8 @@ export default function ChatSidebar({
   const title = projectTitle.trim() || '未命名项目';
   const activeBrandName =
     brandSpecs.find((item) => item.id === activeBrandSpecId)?.brandName || '未选择';
+  const activeBrandTemplateName =
+    brandTemplates.find((item) => item.id === activeBrandTemplateId)?.name || '未选择';
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messageCount = currentSession?.messages.length ?? 0;
   const latestMessageKey = currentSession?.messages[messageCount - 1]?.id ?? '';
@@ -588,28 +613,31 @@ export default function ChatSidebar({
                       ) : null}
                     </div>
 
-                    <div ref={brandMenuRef} className="relative">
-                      <button
-                        type="button"
-                        onClick={onToggleBrandMenu}
-                        className="inline-flex h-9 items-center gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-slate-200 transition hover:bg-[#1a1f28]"
-                      >
-                        品牌模板
-                        <ChevronDown
-                          className={`h-3 w-3 transition ${isBrandMenuOpen ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-
-                      {isBrandMenuOpen ? (
-                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[260px]">
-                          <BrandMenu
-                            brandTemplates={brandTemplates}
-                            brandTemplateInputRef={brandTemplateInputRef}
-                            onSelectBrandTemplate={onSelectBrandTemplate}
+                    {false ? (
+                      <div ref={brandMenuRef} className="relative">
+                        <button
+                          type="button"
+                          onClick={onToggleBrandMenu}
+                          className="inline-flex h-9 items-center gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-3 text-[12px] text-slate-200 transition hover:bg-[#1a1f28]"
+                        >
+                          {activeBrandTemplateName}+模板
+                          <ChevronDown
+                            className={`h-3 w-3 transition ${isBrandMenuOpen ? 'rotate-180' : ''}`}
                           />
-                        </div>
-                      ) : null}
-                    </div>
+                        </button>
+
+                        {isBrandMenuOpen ? (
+                          <div className="absolute bottom-full left-0 z-40 mb-3 w-[260px]">
+                            <BrandMenu
+                              brandTemplates={brandTemplates}
+                              activeBrandTemplateId={activeBrandTemplateId}
+                              brandTemplateInputRef={brandTemplateInputRef}
+                              onSelectBrandTemplate={onSelectBrandTemplate}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="ml-auto flex items-center gap-2">
                       <button

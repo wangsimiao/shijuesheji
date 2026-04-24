@@ -635,7 +635,9 @@ export default function CanvasStage({
           <div className="flex flex-col items-center gap-1.5">
             <ToolbarButton icon={MousePointer2} label="选择" active={tool === 'select'} onClick={() => setTool('select')} />
             <ToolbarButton icon={ImagePlus} label="导入图片" onClick={() => imageInputRef.current?.click()} />
-            <ToolbarButton icon={Video} label="导入视频" onClick={() => videoInputRef.current?.click()} />
+            {false ? (
+              <ToolbarButton icon={Video} label="导入视频" onClick={() => videoInputRef.current?.click()} />
+            ) : null}
             <div className="my-1 h-px w-6 bg-white/[0.1]" />
             <ToolbarButton icon={Pencil} label="画笔" active={tool === 'draw'} onClick={() => setTool('draw')} />
             <ToolbarButton icon={Slash} label="线段" active={tool === 'line'} onClick={() => setTool('line')} />
