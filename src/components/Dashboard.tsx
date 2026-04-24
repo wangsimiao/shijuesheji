@@ -384,6 +384,10 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
   const renderDesignContent = () => {
     const canLaunch = !isLaunchingProject && (launchPrompt.trim().length > 0 || launchImages.length > 0);
+    const displayBrandSpecName =
+      launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '\u54c1\u724c\u89c4\u8303';
+    const displaySizeLabel =
+      HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '\u5c3a\u5bf8';
     const activeBrandSpecName =
       launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '鍝佺墝瑙勮寖';
     const activeSizeLabel =
@@ -473,7 +477,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                   }}
                   rows={2}
                   placeholder="描述你希望生成或修改的内容..."
-                  className="min-h-[66px] w-full resize-none bg-transparent px-1.5 py-1 text-[13px] leading-5 text-white outline-none placeholder:text-slate-500"
+                  className="min-h-[50px] w-full resize-none bg-transparent px-1.5 py-0.5 text-[13px] leading-5 text-white outline-none placeholder:text-slate-500"
                 />
 
                 <div className="mt-2 flex items-center gap-1.5 px-0.5">
@@ -534,7 +538,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                           : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
                       }`}
                     >
-                      {activeBrandSpecName}
+                      {displayBrandSpecName}
                       <ChevronDown className={`h-3 w-3 transition ${isLaunchBrandSpecMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isLaunchBrandSpecMenuOpen ? (
@@ -593,7 +597,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                       }`}
                     >
                       <Ruler className="h-3.5 w-3.5" />
-                      {activeSizeLabel}
+                      {displaySizeLabel}
                       <ChevronDown className={`h-3 w-3 transition ${isLaunchSizeMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isLaunchSizeMenuOpen ? (
