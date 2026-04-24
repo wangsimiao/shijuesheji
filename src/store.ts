@@ -53,7 +53,7 @@ const DEFAULT_MODEL_SETTINGS: ModelSettings = {
       apiKey: '',
     },
   },
-  defaultAiVisionImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
+  defaultAiVisionImageModel: DOUBAO_5_IMAGE_MODEL,
   retryCount: 1,
   timeoutMs: 45000,
   updatedAt: Date.now(),
@@ -419,6 +419,7 @@ function normalizeBrandSpecs(input: unknown): BrandSpec[] {
       const brandName = typeof candidate.brandName === 'string' ? candidate.brandName.trim() : '';
       const specText = typeof candidate.specText === 'string' ? candidate.specText : '';
       if (!brandName) return null;
+      if (brandName.toLowerCase() === 'aa') return null;
       return {
         id:
           typeof candidate.id === 'string' && candidate.id.trim()
@@ -447,6 +448,13 @@ export function getBrandSpecs(): BrandSpec[] {
 export function saveBrandSpecs(specs: BrandSpec[]) {
   const normalized = normalizeBrandSpecs(specs);
   persist(BRAND_SPECS_KEY, normalized.length > 0 ? normalized : createDefaultBrandSpecs());
+}
+
+export function deleteBrandSpec(brandSpecId: string): BrandSpec[] {
+  const list = getBrandSpecs().filter((item) => item.id !== brandSpecId);
+  const nextList = list.length > 0 ? list : createDefaultBrandSpecs();
+  saveBrandSpecs(nextList);
+  return nextList;
 }
 
 export function upsertBrandSpec(brandName: string, specText: string): BrandSpec {
@@ -633,9 +641,9 @@ export function appendProductMonitorRun(run: ProductMonitorRun) {
 }
 
 const USERS: User[] = [
-  { id: 'user-001', name: 'Admin', role: 'admin', avatar: 'https://api.dicebear.com/9.x/glass/svg?seed=Admin' },
-  { id: 'user-002', name: 'Operator A', role: 'user', avatar: 'https://api.dicebear.com/9.x/glass/svg?seed=A' },
-  { id: 'user-003', name: 'Operator B', role: 'user', avatar: 'https://api.dicebear.com/9.x/glass/svg?seed=B' },
+  { id: 'user-001', name: 'Admin A', role: 'admin', avatar: 'https://api.dicebear.com/9.x/glass/svg?seed=AdminA' },
+  { id: 'user-002', name: 'Admin B', role: 'admin', avatar: 'https://api.dicebear.com/9.x/glass/svg?seed=AdminB' },
+  { id: 'user-003', name: 'Admin C', role: 'admin', avatar: 'https://api.dicebear.com/9.x/glass/svg?seed=AdminC' },
 ];
 
 export function getAllUsers(): User[] {

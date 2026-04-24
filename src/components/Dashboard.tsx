@@ -318,18 +318,28 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   const renderDesignContent = () => (
     <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
       <div className="mx-auto max-w-[1560px]">
-        <section className="relative mb-6 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] p-8 shadow-[0_28px_80px_rgba(0,0,0,0.35)]">
-          <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-indigo-500/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-28 left-24 h-64 w-64 rounded-full bg-cyan-500/20 blur-3xl" />
-          <div className="relative flex flex-wrap items-start justify-between gap-4">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">AI Design Workspace</p>
-            <h2 className="mt-3 text-[34px] font-semibold tracking-[0.01em] text-white">众唯 AI 设计</h2>
+        <header className="relative mb-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] px-6 py-5 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
+          <div className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-16 left-16 h-40 w-40 rounded-full bg-cyan-500/18 blur-3xl" />
+          <div className="relative flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[12px] uppercase tracking-[0.2em] text-slate-400">AI Design</div>
+            <h2 className="mt-2 text-[30px] font-semibold tracking-[0.01em] text-white">众唯 AI 设计</h2>
             <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
               直接从这里继续你的画板创作。选择项目即可进入画布，所有会话、素材与版本都会被保留。
             </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('admin')}
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12]"
+            >
+              <Settings2 className="h-4 w-4" />
+              模型设置
+            </button>
           </div>
-        </section>
-        <div className="mb-5 flex justify-end">
+        </header>
+        <div className="mb-5 hidden justify-end">
           <button
             type="button"
             onClick={() => onNavigate('admin')}
@@ -457,6 +467,13 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onNavigate('design')}
+                className="inline-flex h-11 items-center rounded-[14px] border border-white/[0.08] px-4 text-sm text-slate-200 transition hover:bg-white/[0.05]"
+              >
+                返回 AI 设计
+              </button>
               <button
                 type="button"
                 onClick={handleResetModelSettings}

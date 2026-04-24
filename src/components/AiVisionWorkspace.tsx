@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   addBrandTemplateHydrated,
+  deleteBrandSpec,
   getBrandSpecs,
   getBrandTemplatesHydrated,
   saveProject,
@@ -60,7 +61,6 @@ import {
   ViewportSize,
   WORKSPACE_HEADER_HEIGHT,
   buildProjectFromWorkspace,
-  buildSceneAwarePrompt,
   buildDrawingFrame,
   clamp,
   createAvoidOverlapPosition,
@@ -1189,6 +1189,15 @@ export default function AiVisionWorkspace({
     setStatusNotice(`已选中品牌规范：${brandSpecs.find((item) => item.id === brandSpecId)?.brandName || ''}`);
   }
 
+  async function handleDeleteBrandSpec(brandSpecId: string) {
+    const nextSpecs = deleteBrandSpec(brandSpecId);
+    setBrandSpecs(nextSpecs);
+    const nextActiveId =
+      nextSpecs.find((item) => item.id === activeBrandSpecId)?.id || nextSpecs[0]?.id || null;
+    setActiveBrandSpecId(nextActiveId);
+    setStatusNotice('品牌规范已删除');
+  }
+
   async function handleSaveBrandSpec(brandSpecId: string, specText: string) {
     const existing = brandSpecs.find((item) => item.id === brandSpecId);
     if (!existing) return;
@@ -1352,6 +1361,7 @@ export default function AiVisionWorkspace({
   }
 
   function createTextItem(point: CanvasPoint) {
+    const defaultText = '输入文字';
     const box = getInitialTextBox();
     const item: CanvasItem = {
       id: uuidv4(),
@@ -1360,7 +1370,7 @@ export default function AiVisionWorkspace({
       y: point.y,
       width: box.width,
       height: box.height,
-      content: '',
+      content: defaultText,
       mimeType: 'text/plain',
       fontSize: DEFAULT_TEXT_FONT_SIZE,
       fontWeight: DEFAULT_TEXT_FONT_WEIGHT,
@@ -1370,7 +1380,7 @@ export default function AiVisionWorkspace({
     setItems((previous) => [...previous, item]);
     setSingleSelection(item.id);
     setEditingTextItemId(item.id);
-    setEditingTextValue('');
+    setEditingTextValue(defaultText);
   }
 
   function createShapeItem(point: CanvasPoint) {
@@ -1812,7 +1822,7 @@ export default function AiVisionWorkspace({
     if (!text && attachedImages.length === 0) return;
 
     const effectiveText = text || '请基于这些参考图继续创作。';
-    const effectiveTextForModel = buildSceneAwarePrompt(currentScene, effectiveText);
+    const effectiveTextForModel = effectiveText;
     const userMessage: ChatMessage = {
       id: uuidv4(),
       role: 'user',
@@ -2318,6 +2328,7 @@ export default function AiVisionWorkspace({
         onSelectBrandSpec={handleSelectBrandSpec}
         onSaveBrandSpec={handleSaveBrandSpec}
         onCreateBrandSpec={handleCreateBrandSpec}
+        onDeleteBrandSpec={handleDeleteBrandSpec}
         onSelectBrandTemplate={handleSelectBrandTemplate}
         onUploadBrandTemplate={async (file) => {
           try {

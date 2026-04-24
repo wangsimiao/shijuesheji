@@ -1,4 +1,4 @@
-import React, { RefObject, useEffect, useMemo, useState } from 'react';
+import React, { RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronLeft,
@@ -62,6 +62,7 @@ interface ChatSidebarProps {
   onSelectBrandSpec: (brandSpecId: string) => void;
   onSaveBrandSpec: (brandSpecId: string, specText: string) => Promise<void>;
   onCreateBrandSpec: (brandName: string) => Promise<void>;
+  onDeleteBrandSpec: (brandSpecId: string) => Promise<void>;
   onSelectBrandTemplate: (template: BrandTemplate) => Promise<void>;
   onUploadBrandTemplate: (file: File) => Promise<void>;
   onUploadReferenceImage: (file: File) => Promise<void>;
@@ -166,9 +167,15 @@ function BrandSpecMenu({
   onSelectBrandSpec,
   onSaveBrandSpec,
   onCreateBrandSpec,
+  onDeleteBrandSpec,
 }: Pick<
   ChatSidebarProps,
-  'brandSpecs' | 'activeBrandSpecId' | 'onSelectBrandSpec' | 'onSaveBrandSpec' | 'onCreateBrandSpec'
+  | 'brandSpecs'
+  | 'activeBrandSpecId'
+  | 'onSelectBrandSpec'
+  | 'onSaveBrandSpec'
+  | 'onCreateBrandSpec'
+  | 'onDeleteBrandSpec'
 >) {
   const [selectedBrandSpecId, setSelectedBrandSpecId] = useState<string>(activeBrandSpecId || '');
   const [specTextDraft, setSpecTextDraft] = useState('');
@@ -192,7 +199,8 @@ function BrandSpecMenu({
   }, [selectedBrandSpec]);
 
   return (
-    <MenuPanel>
+    <div className="max-h-[70vh] overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <MenuPanel>
       <div className="space-y-2">
         <select
           value={selectedBrandSpecId}
@@ -251,7 +259,19 @@ function BrandSpecMenu({
           新增
         </button>
       </div>
-    </MenuPanel>
+      {selectedBrandSpec ? (
+        <button
+          type="button"
+          onClick={() => {
+            void onDeleteBrandSpec(selectedBrandSpec.id);
+          }}
+          className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-[12px] border border-rose-300/30 bg-rose-500/10 text-[12px] text-rose-100 transition hover:bg-rose-500/15"
+        >
+          删除当前品牌规范
+        </button>
+      ) : null}
+      </MenuPanel>
+    </div>
   );
 }
 
@@ -292,6 +312,7 @@ export default function ChatSidebar({
   onSelectBrandSpec,
   onSaveBrandSpec,
   onCreateBrandSpec,
+  onDeleteBrandSpec,
   onSelectBrandTemplate,
   onUploadBrandTemplate,
   onUploadReferenceImage,
@@ -301,6 +322,15 @@ export default function ChatSidebar({
   const title = projectTitle.trim() || '未命名项目';
   const activeBrandName =
     brandSpecs.find((item) => item.id === activeBrandSpecId)?.brandName || '未选择';
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const messageCount = currentSession?.messages.length ?? 0;
+  const latestMessageKey = currentSession?.messages[messageCount - 1]?.id ?? '';
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [currentSessionId, messageCount, latestMessageKey, isChatLoading]);
 
   return (
     <aside
@@ -319,7 +349,7 @@ export default function ChatSidebar({
           <ChevronLeft className="h-5 w-5" />
         </button>
       ) : (
-        <div className="flex h-full flex-col overflow-hidden rounded-l-[30px] border-l border-white/[0.05] bg-[#14171d] shadow-[-20px_0_64px_rgba(0,0,0,0.36)]">
+        <div className="flex h-full flex-col overflow-visible rounded-l-[30px] border-l border-white/[0.05] bg-[#14171d] shadow-[-20px_0_64px_rgba(0,0,0,0.36)]">
           <div className="border-b border-white/[0.05] px-5" style={{ minHeight: headerHeight }}>
             <div className="flex h-full items-center justify-between gap-3">
               <div ref={historyMenuRef} className="relative flex min-w-0 items-center gap-3">
@@ -371,8 +401,11 @@ export default function ChatSidebar({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className={`ai-vision-chat-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}>
+            <div className="flex min-h-0 flex-1 flex-col overflow-visible">
+              <div
+                ref={messagesContainerRef}
+                className={`ai-vision-chat-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 ${HIDDEN_SCROLLBAR}`}
+              >
                 {currentSession?.messages.length ? (
                   <div className="space-y-5">
                     {currentSession.messages.map((message) => {
@@ -535,20 +568,21 @@ export default function ChatSidebar({
                             : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
                         }`}
                       >
-                        {activeBrandName}规范
+                        {activeBrandName}+规范
                         <ChevronDown
                           className={`h-3 w-3 transition ${isBrandSpecMenuOpen ? 'rotate-180' : ''}`}
                         />
                       </button>
 
                       {isBrandSpecMenuOpen ? (
-                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[320px]">
+                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[min(340px,calc(100vw-32px))]">
                           <BrandSpecMenu
                             brandSpecs={brandSpecs}
                             activeBrandSpecId={activeBrandSpecId}
                             onSelectBrandSpec={onSelectBrandSpec}
                             onSaveBrandSpec={onSaveBrandSpec}
                             onCreateBrandSpec={onCreateBrandSpec}
+                            onDeleteBrandSpec={onDeleteBrandSpec}
                           />
                         </div>
                       ) : null}
