@@ -621,9 +621,9 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     const resolvedLaunchSizeLabel =
       HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || launchSizeId || '尺寸';
     const activeBrandSpecName =
-      launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '鍝佺墝瑙勮寖';
+      launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '品牌规范';
     const activeSizeLabel =
-      HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '灏哄';
+      HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '尺寸';
     return (
       <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
         <div className="mx-auto max-w-[1560px]">
@@ -636,7 +636,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                   电商爆款，图由你生
                 </h2>
                 <p className="mx-auto mt-2 max-w-[820px] text-[13px] leading-6 text-slate-300">
-                  发起对话，立即体验众唯1.3
+                  发起对话，立即体验众唯 1.3
                 </p>
               </div>
               <button
@@ -645,7 +645,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                 className="mt-3 inline-flex h-10 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12] md:absolute md:right-0 md:top-0 md:mt-0"
               >
                 <Settings2 className="h-4 w-4" />
-                模型设置
+                模型配置
               </button>
             </div>
 
@@ -725,7 +725,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                     >
                       {getDisplayModelLabel(
                         launchModel,
-                        IMAGE_MODEL_OPTIONS.find((option) => option.value === launchModel)?.label || '妯″瀷'
+                        IMAGE_MODEL_OPTIONS.find((option) => option.value === launchModel)?.label || '模型'
                       )}
                       <ChevronDown className={`h-3 w-3 transition ${isLaunchModelMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
@@ -848,8 +848,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                             }`}
                             style={{ fontSize: 0 }}
                           >
-                            <span className="text-[11px]">{'\u4e0d\u6307\u5b9a\u5c3a\u5bf8'}</span>
-                            不指定尺寸
+                            <span className="text-[11px]">不指定尺寸</span>
                           </button>
                         </div>
                       </div>
@@ -911,9 +910,14 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
           ) : (
             <div className="space-y-5">
               {paginatedProjects.length === 0 ? (
-                <div className="rounded-[20px] border border-white/[0.08] bg-[#121621] p-8 text-center">
-                  <p className="text-sm text-slate-300">还没有历史画布，直接在上方对话框发起创作就会自动创建新画布。</p>
-                </div>
+                <section className="relative min-h-[430px] overflow-hidden rounded-[24px] border border-white/[0.08] bg-[#121621] shadow-[0_18px_44px_rgba(0,0,0,0.24)]">
+                  <img
+                    src="/ecommerce-empty-state.png"
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover opacity-80"
+                  />
+                  <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,18,0.08)_0%,rgba(7,10,18,0.22)_42%,rgba(7,10,18,0.78)_100%)]" />
+                </section>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
                   {paginatedProjects.map((project) => (
