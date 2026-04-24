@@ -193,8 +193,9 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="border-t border-white/10 px-4 py-4">
-            <div className="mx-auto w-full max-w-4xl">
+          <form onSubmit={handleSubmit} className="relative isolate overflow-hidden border-t border-white/10 px-4 py-4">
+            <div className="home-chat-line-sweep pointer-events-none absolute left-0 right-0 top-1/2 z-0 h-px -translate-y-1/2" />
+            <div className="relative z-10 mx-auto w-full max-w-4xl">
               <div className="mb-3 flex flex-wrap gap-2">
                 {SCENE_OPTIONS.map((option) => (
                   <button
@@ -212,7 +213,7 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
                 ))}
               </div>
 
-              <div className="rounded-2xl border border-white/15 bg-black/20 p-3">
+              <div className="rounded-2xl border border-white/15 bg-black/80 p-3 shadow-[0_18px_52px_rgba(2,6,23,0.44)] backdrop-blur-xl">
                 {scene === 'consult' ? (
                   <div className="mb-2 grid gap-2 sm:grid-cols-2">
                     <select

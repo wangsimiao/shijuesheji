@@ -422,6 +422,8 @@ function ChatSidebar({
     brandSpecs.find((item) => item.id === activeBrandSpecId)?.brandName || '未选择';
   const activeBrandTemplateName =
     brandTemplates.find((item) => item.id === activeBrandTemplateId)?.name || '未选择';
+  const displaySizeLabel =
+    IMAGE_SIZE_OPTIONS.find((item) => item.value === activeSizeId)?.label || '尺寸';
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messageCount = currentSession?.messages.length ?? 0;
   const latestMessageKey = currentSession?.messages[messageCount - 1]?.id ?? '';
@@ -695,9 +697,9 @@ function ChatSidebar({
                         }
                       }
                     }}
-                    rows={4}
+                    rows={3}
                     placeholder="描述你想继续推进的画面..."
-                    className="mt-1 min-h-[112px] w-full resize-none bg-transparent px-1.5 py-1.5 text-[13px] leading-6 text-white outline-none placeholder:text-slate-500"
+                    className="mt-1 min-h-[82px] w-full resize-none bg-transparent px-1.5 py-1 text-[13px] leading-5 text-white outline-none placeholder:text-slate-500"
                   />
 
                   {!isModelConfigured && modelConfigurationMessage ? (
@@ -766,7 +768,7 @@ function ChatSidebar({
                         }`}
                       >
                         <Ruler className="h-3.5 w-3.5" />
-                        {activeSizeId ? activeSizeId : '尺寸'}
+                        {displaySizeLabel}
                         <ChevronDown
                           className={`h-3 w-3 transition ${isSizeConfigMenuOpen ? 'rotate-180' : ''}`}
                         />
