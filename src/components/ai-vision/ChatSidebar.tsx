@@ -363,7 +363,7 @@ function SizeConfigMenu({
   );
 }
 
-export default function ChatSidebar({
+function ChatSidebar({
   projectTitle,
   currentSession,
   sessions,
@@ -860,3 +860,39 @@ export default function ChatSidebar({
     </aside>
   );
 }
+
+function areChatSidebarPropsEqual(previous: ChatSidebarProps, next: ChatSidebarProps) {
+  return (
+    previous.projectTitle === next.projectTitle &&
+    previous.currentSession === next.currentSession &&
+    previous.sessions === next.sessions &&
+    previous.currentSessionId === next.currentSessionId &&
+    previous.currentScene === next.currentScene &&
+    previous.chatInput === next.chatInput &&
+    previous.chatInputImages === next.chatInputImages &&
+    previous.brandTemplates === next.brandTemplates &&
+    previous.brandSpecs === next.brandSpecs &&
+    previous.activeBrandSpecId === next.activeBrandSpecId &&
+    previous.activeBrandTemplateId === next.activeBrandTemplateId &&
+    previous.selectedImageModel === next.selectedImageModel &&
+    previous.isChatLoading === next.isChatLoading &&
+    previous.isCollapsed === next.isCollapsed &&
+    previous.isHistoryMenuOpen === next.isHistoryMenuOpen &&
+    previous.isBrandSpecMenuOpen === next.isBrandSpecMenuOpen &&
+    previous.isBrandMenuOpen === next.isBrandMenuOpen &&
+    previous.storageWarning === next.storageWarning &&
+    previous.isModelConfigured === next.isModelConfigured &&
+    previous.modelConfigurationMessage === next.modelConfigurationMessage &&
+    previous.headerHeight === next.headerHeight &&
+    previous.historyMenuRef === next.historyMenuRef &&
+    previous.brandSpecMenuRef === next.brandSpecMenuRef &&
+    previous.brandMenuRef === next.brandMenuRef &&
+    previous.sizeConfigMenuRef === next.sizeConfigMenuRef &&
+    previous.chatUploadInputRef === next.chatUploadInputRef &&
+    previous.brandTemplateInputRef === next.brandTemplateInputRef &&
+    previous.activeSizeId === next.activeSizeId &&
+    previous.isSizeConfigMenuOpen === next.isSizeConfigMenuOpen
+  );
+}
+
+export default React.memo(ChatSidebar, areChatSidebarPropsEqual);

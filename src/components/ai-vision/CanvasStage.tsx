@@ -67,6 +67,7 @@ interface CanvasStageProps {
   editingTextValue: string;
   canvasRootRef: RefObject<HTMLDivElement | null>;
   canvasViewportRef: RefObject<HTMLDivElement | null>;
+  canvasTransformRef: RefObject<HTMLDivElement | null>;
   imageInputRef: RefObject<HTMLInputElement>;
   videoInputRef: RefObject<HTMLInputElement>;
   isModelConfigured: boolean;
@@ -308,6 +309,7 @@ export default function CanvasStage({
   editingTextValue,
   canvasRootRef,
   canvasViewportRef,
+  canvasTransformRef,
   imageInputRef,
   videoInputRef,
   isModelConfigured,
@@ -379,6 +381,9 @@ export default function CanvasStage({
         />
 
         <div
+          ref={(node) => {
+            assignElementRef(canvasTransformRef, node);
+          }}
           className="absolute left-0 top-0 origin-top-left"
           style={{
             transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,

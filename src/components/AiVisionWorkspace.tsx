@@ -98,8 +98,14 @@ interface AiVisionWorkspaceProps {
 }
 
 const WHEEL_PAN_SENSITIVITY = 0.9;
-const WHEEL_ZOOM_SENSITIVITY = 0.00135;
+const WHEEL_ZOOM_SENSITIVITY = 0.0048;
 const WHEEL_DELTA_DEADZONE = 0.2;
+const WHEEL_ZOOM_DEADZONE = 0.01;
+const MAX_WHEEL_PAN_DELTA = 180;
+const MAX_WHEEL_ZOOM_DELTA = 220;
+const PINCH_CENTER_LERP = 0.82;
+const PINCH_DISTANCE_LERP = 0.92;
+const VIEW_COMMIT_DELAY_MS = 96;
 
 function normalizeProjectName(value: string) {
   return value.replace(/\s+/g, '').trim();
@@ -407,6 +413,7 @@ export default function AiVisionWorkspace({
 
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+  const canvasTransformRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const replaceImageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -441,6 +448,8 @@ export default function AiVisionWorkspace({
     originY: number;
     deltaY: number;
   } | null>(null);
+  const viewCommitTimerRef = useRef<number | null>(null);
+  const isDirectViewInteractionRef = useRef(false);
 
   const itemsRef = useRef(items);
   const sessionsRef = useRef(sessions);
@@ -450,6 +459,9 @@ export default function AiVisionWorkspace({
   const copiedItemsRef = useRef<CanvasItem[] | null>(null);
 
   function clearTouchGestureState() {
+    if (isDirectViewInteractionRef.current) {
+      commitLiveViewToState();
+    }
     activeTouchGestureRef.current = false;
     gestureStartedInCanvasRef.current = false;
     activeTouchIdsRef.current.clear();
@@ -476,6 +488,59 @@ export default function AiVisionWorkspace({
       window.cancelAnimationFrame(wheelFrameRef.current);
       wheelFrameRef.current = null;
     }
+    if (viewCommitTimerRef.current !== null) {
+      window.clearTimeout(viewCommitTimerRef.current);
+      viewCommitTimerRef.current = null;
+    }
+    isDirectViewInteractionRef.current = false;
+  }
+
+  function renderViewTransform(nextView: ViewState) {
+    viewRef.current = nextView;
+    const transformNode = canvasTransformRef.current;
+    if (transformNode) {
+      transformNode.style.transform = `translate3d(${nextView.x}px, ${nextView.y}px, 0) scale(${nextView.scale})`;
+    }
+  }
+
+  function commitLiveViewToState() {
+    if (viewCommitTimerRef.current !== null) {
+      window.clearTimeout(viewCommitTimerRef.current);
+      viewCommitTimerRef.current = null;
+    }
+    isDirectViewInteractionRef.current = false;
+    const nextView = viewRef.current;
+    setView((previous) => {
+      if (
+        Math.abs(previous.x - nextView.x) < 0.0001 &&
+        Math.abs(previous.y - nextView.y) < 0.0001 &&
+        Math.abs(previous.scale - nextView.scale) < 0.000001
+      ) {
+        return previous;
+      }
+      return {
+        ...previous,
+        x: nextView.x,
+        y: nextView.y,
+        scale: nextView.scale,
+      };
+    });
+  }
+
+  function scheduleLiveViewCommit() {
+    if (viewCommitTimerRef.current !== null) {
+      window.clearTimeout(viewCommitTimerRef.current);
+    }
+    viewCommitTimerRef.current = window.setTimeout(() => {
+      commitLiveViewToState();
+    }, VIEW_COMMIT_DELAY_MS);
+  }
+
+  function applyLiveViewUpdate(updater: (previous: ViewState) => ViewState) {
+    isDirectViewInteractionRef.current = true;
+    const nextView = updater(viewRef.current);
+    renderViewTransform(nextView);
+    scheduleLiveViewCommit();
   }
 
   function applyPinchTransform(
@@ -511,7 +576,7 @@ export default function AiVisionWorkspace({
       const pending = pinchPendingRef.current;
       pinchPendingRef.current = null;
       if (!pending) return;
-      setView((previous) =>
+      applyLiveViewUpdate((previous) =>
         applyPinchTransform(
           previous,
           pending.previousCenter,
@@ -535,12 +600,12 @@ export default function AiVisionWorkspace({
       if (
         Math.abs(panDelta.x) < WHEEL_DELTA_DEADZONE &&
         Math.abs(panDelta.y) < WHEEL_DELTA_DEADZONE &&
-        (!zoomDelta || Math.abs(zoomDelta.deltaY) < WHEEL_DELTA_DEADZONE)
+        (!zoomDelta || Math.abs(zoomDelta.deltaY) < WHEEL_ZOOM_DEADZONE)
       ) {
         return;
       }
 
-      setView((previous) => {
+      applyLiveViewUpdate((previous) => {
         let next = previous;
         if (
           Math.abs(panDelta.x) >= WHEEL_DELTA_DEADZONE ||
@@ -553,9 +618,9 @@ export default function AiVisionWorkspace({
           };
         }
 
-        if (zoomDelta && Math.abs(zoomDelta.deltaY) >= WHEEL_DELTA_DEADZONE) {
+        if (zoomDelta && Math.abs(zoomDelta.deltaY) >= WHEEL_ZOOM_DEADZONE) {
           const rawScaleRatio = Math.exp(-zoomDelta.deltaY * WHEEL_ZOOM_SENSITIVITY);
-          const scaleRatio = clamp(rawScaleRatio, 0.65, 1.6);
+          const scaleRatio = clamp(rawScaleRatio, 0.35, 2.8);
           const safeScale = clamp(next.scale * scaleRatio, MIN_SCALE, MAX_SCALE);
           const worldX = (zoomDelta.originX - next.x) / next.scale;
           const worldY = (zoomDelta.originY - next.y) / next.scale;
@@ -581,7 +646,8 @@ export default function AiVisionWorkspace({
   }, [sessions]);
 
   useEffect(() => {
-    viewRef.current = view;
+    if (isDirectViewInteractionRef.current) return;
+    renderViewTransform(view);
   }, [view]);
 
   useEffect(() => {
@@ -602,6 +668,9 @@ export default function AiVisionWorkspace({
       }
       if (wheelFrameRef.current !== null) {
         window.cancelAnimationFrame(wheelFrameRef.current);
+      }
+      if (viewCommitTimerRef.current !== null) {
+        window.clearTimeout(viewCommitTimerRef.current);
       }
     };
   }, []);
@@ -785,18 +854,24 @@ export default function AiVisionWorkspace({
       const nextDistance = getTouchDistance(firstTouch, secondTouch);
       const previousCenter = lastPinchCenterRef.current || nextCenter;
       const previousDistance = lastPinchDistanceRef.current || nextDistance;
+      const smoothCenter = {
+        x: previousCenter.x + (nextCenter.x - previousCenter.x) * PINCH_CENTER_LERP,
+        y: previousCenter.y + (nextCenter.y - previousCenter.y) * PINCH_CENTER_LERP,
+      };
+      const smoothDistance =
+        previousDistance + (nextDistance - previousDistance) * PINCH_DISTANCE_LERP;
 
       preventCapturedGesture(event);
 
       schedulePinchViewUpdate({
         previousCenter,
         previousDistance,
-        nextCenter,
-        nextDistance,
+        nextCenter: smoothCenter,
+        nextDistance: smoothDistance,
       });
 
-      lastPinchDistanceRef.current = nextDistance;
-      lastPinchCenterRef.current = nextCenter;
+      lastPinchDistanceRef.current = smoothDistance;
+      lastPinchCenterRef.current = smoothCenter;
     };
 
     const handleTouchEndCapture = (event: TouchEvent) => {
@@ -930,16 +1005,22 @@ export default function AiVisionWorkspace({
       const nextDistance = getClientPointDistance(points[0], points[1]);
       const previousCenter = lastPinchCenterRef.current || nextCenter;
       const previousDistance = lastPinchDistanceRef.current || nextDistance;
+      const smoothCenter = {
+        x: previousCenter.x + (nextCenter.x - previousCenter.x) * PINCH_CENTER_LERP,
+        y: previousCenter.y + (nextCenter.y - previousCenter.y) * PINCH_CENTER_LERP,
+      };
+      const smoothDistance =
+        previousDistance + (nextDistance - previousDistance) * PINCH_DISTANCE_LERP;
 
       schedulePinchViewUpdate({
         previousCenter,
         previousDistance,
-        nextCenter,
-        nextDistance,
+        nextCenter: smoothCenter,
+        nextDistance: smoothDistance,
       });
 
-      lastPinchDistanceRef.current = nextDistance;
-      lastPinchCenterRef.current = nextCenter;
+      lastPinchDistanceRef.current = smoothDistance;
+      lastPinchCenterRef.current = smoothCenter;
     };
 
     const handlePointerReleaseCapture = (event: PointerEvent) => {
@@ -1226,8 +1307,16 @@ export default function AiVisionWorkspace({
   }
 
   function applyCanvasPanFromWheel(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>) {
-    const deltaX = getWheelDeltaInPixels(event.deltaX, event.deltaMode);
-    const deltaY = getWheelDeltaInPixels(event.deltaY, event.deltaMode);
+    const deltaX = clamp(
+      getWheelDeltaInPixels(event.deltaX, event.deltaMode),
+      -MAX_WHEEL_PAN_DELTA,
+      MAX_WHEEL_PAN_DELTA
+    );
+    const deltaY = clamp(
+      getWheelDeltaInPixels(event.deltaY, event.deltaMode),
+      -MAX_WHEEL_PAN_DELTA,
+      MAX_WHEEL_PAN_DELTA
+    );
     if (Math.abs(deltaX) < WHEEL_DELTA_DEADZONE && Math.abs(deltaY) < WHEEL_DELTA_DEADZONE) {
       return;
     }
@@ -1239,16 +1328,17 @@ export default function AiVisionWorkspace({
   }
 
   function applyCanvasZoomFromWheel(deltaY: number, originX: number, originY: number) {
-    if (Math.abs(deltaY) < WHEEL_DELTA_DEADZONE) {
+    const normalizedDeltaY = clamp(deltaY, -MAX_WHEEL_ZOOM_DELTA, MAX_WHEEL_ZOOM_DELTA);
+    if (Math.abs(normalizedDeltaY) < WHEEL_ZOOM_DEADZONE) {
       return;
     }
     const existing = wheelZoomDeltaRef.current;
     if (existing) {
-      existing.deltaY += deltaY;
+      existing.deltaY += normalizedDeltaY;
       existing.originX = originX;
       existing.originY = originY;
     } else {
-      wheelZoomDeltaRef.current = { deltaY, originX, originY };
+      wheelZoomDeltaRef.current = { deltaY: normalizedDeltaY, originX, originY };
     }
     scheduleWheelViewUpdate();
   }
@@ -2444,10 +2534,12 @@ export default function AiVisionWorkspace({
       if (!currentInteraction || !canvas) return;
 
       if (currentInteraction.type === 'pan') {
-        setView((previous) => ({
+        const nextX = currentInteraction.originX + (event.clientX - currentInteraction.startClientX);
+        const nextY = currentInteraction.originY + (event.clientY - currentInteraction.startClientY);
+        applyLiveViewUpdate((previous) => ({
           ...previous,
-          x: currentInteraction.originX + (event.clientX - currentInteraction.startClientX),
-          y: currentInteraction.originY + (event.clientY - currentInteraction.startClientY),
+          x: nextX,
+          y: nextY,
         }));
         return;
       }
@@ -2635,6 +2727,9 @@ export default function AiVisionWorkspace({
       setMarqueeRect(null);
       setDrawPreviewPoints(null);
       setLinePreviewItem(null);
+      if (currentInteraction.type === 'pan') {
+        commitLiveViewToState();
+      }
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -2696,6 +2791,7 @@ export default function AiVisionWorkspace({
           editingTextValue={editingTextValue}
           canvasRootRef={canvasRootRef}
           canvasViewportRef={canvasViewportRef}
+          canvasTransformRef={canvasTransformRef}
           imageInputRef={imageInputRef}
           videoInputRef={videoInputRef}
           isModelConfigured={isSelectedImageModelConfigured}
