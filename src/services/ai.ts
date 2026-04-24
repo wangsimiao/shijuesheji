@@ -648,10 +648,16 @@ function normalizeInheritedDoubaoSize(sizeHint?: string) {
   if (!sizeHint) return undefined;
   const parsed = parseSizeDimensions(sizeHint);
   if (!parsed) return undefined;
-  if (parsed.width * parsed.height < DOUBAO_MIN_OUTPUT_PIXELS) {
-    return undefined;
+  let width = Math.max(1, Math.round(parsed.width));
+  let height = Math.max(1, Math.round(parsed.height));
+  const pixels = width * height;
+  if (pixels < DOUBAO_MIN_OUTPUT_PIXELS) {
+    // 豆包要求最小输出像素；不足时按原图比例等比放大到阈值。
+    const scale = Math.sqrt(DOUBAO_MIN_OUTPUT_PIXELS / Math.max(pixels, 1));
+    width = Math.max(1, Math.ceil(width * scale));
+    height = Math.max(1, Math.ceil(height * scale));
   }
-  return `${parsed.width}x${parsed.height}`;
+  return `${width}x${height}`;
 }
 
 function decodeJsonString(raw: string) {
@@ -1019,7 +1025,7 @@ export async function chatWithAI(
     {
       model: (options?.model || DEFAULT_CHAT_MODEL).trim(),
       temperature: typeof options?.temperature === 'number' ? options.temperature : 0.7,
-      stream: true,
+      stream: false,
       messages: [
         {
           role: 'system',
@@ -1539,13 +1545,8 @@ async function resolveOpenRouterImageConfigOptions(
     return undefined;
   }
 
-  const dimensions = await loadImageDimensionsFromSource(referenceImages[0]).catch(() => null);
-  if (!dimensions) {
-    imageConfig.size = 'auto';
-    return imageConfig;
-  }
-
-  imageConfig.size = mapDimensionsToOpenAIGptImageSize(dimensions.width, dimensions.height);
+  // 无显式尺寸时，优先让模型按参考图自动继承尺寸/比例，而不是强制映射到固定档位。
+  imageConfig.size = 'auto';
   return imageConfig;
 }
 
@@ -1643,7 +1644,7 @@ async function generateOpenRouterImage(
       model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
       messages,
       modalities: ['image', 'text'],
-      stream: true,
+      stream: false,
     };
     if (imageConfig && Object.keys(imageConfig).length > 0) {
       requestBody.image_config = imageConfig;
