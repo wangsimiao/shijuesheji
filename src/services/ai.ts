@@ -140,6 +140,9 @@ const DOUBAO_REFERENCE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const DOUBAO_REFERENCE_IMAGE_MAX_PIXELS = 36_000_000;
 const DOUBAO_REFERENCE_IMAGE_MIN_EDGE = 14;
 const DOUBAO_REFERENCE_IMAGE_MAX_RATIO = 16;
+const PROXY_SAFE_DATA_IMAGE_TOTAL_BYTES = 3 * 1024 * 1024;
+const PROXY_SAFE_DATA_IMAGE_SINGLE_BYTES = 1.2 * 1024 * 1024;
+const PROXY_SAFE_DATA_IMAGE_MIN_BYTES = 160 * 1024;
 const GROUP_OUTPUT_DEFAULT_COUNT = 4;
 export const GROUP_OUTPUT_MIN_COUNT = 2;
 export const GROUP_OUTPUT_MAX_COUNT = 15;
@@ -1061,6 +1064,13 @@ function mapImageGenerationError(error: unknown) {
     return '图片生成失败：请求过于频繁，请稍后重试。';
   }
   if (
+    normalized.includes('413') ||
+    normalized.includes('content too large') ||
+    normalized.includes('payload too large')
+  ) {
+    return '图片生成失败：请求体过大（HTTP 413）。已自动压缩参考图；若仍失败，请减少参考图数量或改用更小图片。';
+  }
+  if (
     normalized.includes('502') ||
     normalized.includes('503') ||
     normalized.includes('504') ||
@@ -1174,6 +1184,121 @@ function parseDataUrlMimeAndBody(dataUrl: string) {
 function estimateBase64Bytes(base64Body: string) {
   const padding = (base64Body.match(/=+$/)?.[0]?.length ?? 0);
   return Math.floor((base64Body.length * 3) / 4) - padding;
+}
+
+function estimateDataUrlBytes(dataUrl: string) {
+  const parsed = parseDataUrlMimeAndBody(dataUrl);
+  if (!parsed) return 0;
+  return estimateBase64Bytes(parsed.base64Body);
+}
+
+function isBase64ImageDataUrl(value: string) {
+  return /^data:image\/[a-zA-Z0-9+.-]+;base64,/i.test(value.trim());
+}
+
+async function loadImageElement(source: string) {
+  if (typeof Image === 'undefined') return null;
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = source;
+  });
+}
+
+async function compressDataImageForProxy(
+  source: string,
+  targetBytes: number,
+  maxDimension: number
+) {
+  if (typeof document === 'undefined') return source;
+  const parsed = parseDataUrlMimeAndBody(source);
+  if (!parsed) return source;
+  const currentBytes = estimateBase64Bytes(parsed.base64Body);
+  if (currentBytes <= targetBytes) return source;
+
+  const image = await loadImageElement(source);
+  if (!image) return source;
+
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) return source;
+
+  let width = image.naturalWidth || image.width;
+  let height = image.naturalHeight || image.height;
+  if (!width || !height) return source;
+
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  width = Math.max(1, Math.round(width * scale));
+  height = Math.max(1, Math.round(height * scale));
+
+  const render = (quality: number) => {
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL('image/jpeg', quality);
+  };
+
+  let quality = 0.9;
+  let result = render(quality);
+
+  while (estimateDataUrlBytes(result) > targetBytes && quality > 0.45) {
+    quality = Math.max(0.45, quality - 0.08);
+    result = render(quality);
+    if (quality <= 0.45) break;
+  }
+
+  let resizeCount = 0;
+  while (estimateDataUrlBytes(result) > targetBytes && resizeCount < 4) {
+    width = Math.max(64, Math.round(width * 0.85));
+    height = Math.max(64, Math.round(height * 0.85));
+    quality = Math.min(quality, 0.82);
+    result = render(quality);
+    while (estimateDataUrlBytes(result) > targetBytes && quality > 0.4) {
+      quality = Math.max(0.4, quality - 0.08);
+      result = render(quality);
+      if (quality <= 0.4) break;
+    }
+    resizeCount += 1;
+  }
+
+  return result;
+}
+
+async function prepareReferenceImagesForProxy(referenceImages: string[]) {
+  const refs = referenceImages.filter(Boolean).map((item) => item.trim()).filter(Boolean);
+  if (!ENABLE_BACKEND_PROXY) return refs;
+
+  const dataImageIndexes = refs
+    .map((value, index) => (isBase64ImageDataUrl(value) ? index : -1))
+    .filter((index) => index >= 0);
+  if (!dataImageIndexes.length) return refs;
+
+  const perImageBudget = Math.max(
+    PROXY_SAFE_DATA_IMAGE_MIN_BYTES,
+    Math.min(
+      PROXY_SAFE_DATA_IMAGE_SINGLE_BYTES,
+      Math.floor(PROXY_SAFE_DATA_IMAGE_TOTAL_BYTES / dataImageIndexes.length)
+    )
+  );
+  const maxDimension = dataImageIndexes.length >= 6 ? 1024 : dataImageIndexes.length >= 3 ? 1280 : 1536;
+
+  const nextRefs = [...refs];
+  await Promise.all(
+    dataImageIndexes.map(async (index) => {
+      nextRefs[index] = await compressDataImageForProxy(nextRefs[index], perImageBudget, maxDimension);
+    })
+  );
+
+  const totalDataImageBytes = nextRefs.reduce((sum, item) => sum + estimateDataUrlBytes(item), 0);
+  if (totalDataImageBytes > PROXY_SAFE_DATA_IMAGE_TOTAL_BYTES) {
+    throw new Error(
+      '参考图总大小超过代理上限，请减少参考图数量，或先压缩后再试。建议单次参考图总大小控制在 3MB 以内。'
+    );
+  }
+
+  return nextRefs;
 }
 
 async function loadDataUrlDimensions(dataUrl: string) {
@@ -1328,7 +1453,7 @@ async function generateDoubaoImage(
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
-  const refs = referenceImages.filter(Boolean);
+  const refs = await prepareReferenceImagesForProxy(referenceImages);
   try {
     await validateDoubaoReferenceImages(refs);
     const resolvedModel = (model || config.imageModel).trim();
@@ -1438,7 +1563,7 @@ async function generateOpenRouterImage(
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
-  const refs = referenceImages.filter(Boolean);
+  const refs = await prepareReferenceImagesForProxy(referenceImages);
   const intent = resolveImageGenerationIntent(prompt, {
     outputCount: options?.outputCount,
     sizeHint: options?.sizeHint,
@@ -1615,7 +1740,7 @@ export async function generateVideoAI(
     throw new Error('未配置豆包视频能力，请先在模型设置页配置豆包 API Key。');
   }
 
-  const refs = referenceImages.filter(Boolean);
+  const refs = await prepareReferenceImagesForProxy(referenceImages);
   const basePayload: Record<string, unknown> = {
     model: requireVideoModel(),
     prompt: cleanPrompt,
