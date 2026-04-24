@@ -96,7 +96,7 @@ body.ai-vision-workspace-active #root {
 
 @keyframes home-chat-line-sweep {
   0% {
-    transform: translate3d(-150vw, -50%, 0);
+    transform: translate3d(-150vw, 36px, 0) rotate(-8deg);
     opacity: 0;
   }
   8%,
@@ -104,7 +104,7 @@ body.ai-vision-workspace-active #root {
     opacity: 1;
   }
   100% {
-    transform: translate3d(150vw, -50%, 0);
+    transform: translate3d(150vw, -36px, 0) rotate(-8deg);
     opacity: 0;
   }
 }
@@ -138,6 +138,7 @@ body.ai-vision-workspace-active #root {
 .home-chat-line-sweep::before {
   width: min(760px, 80vw);
   height: 3px;
+  transform: translate3d(-50%, -50%, 0);
   background:
     linear-gradient(90deg, transparent 0%, rgba(125, 211, 252, 0.2) 9%, rgba(34, 211, 238, 0.98) 42%, rgba(255, 255, 255, 1) 50%, rgba(96, 165, 250, 0.85) 58%, rgba(59, 130, 246, 0.2) 91%, transparent 100%);
   box-shadow:

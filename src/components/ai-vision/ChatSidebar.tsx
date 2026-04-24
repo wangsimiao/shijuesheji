@@ -25,17 +25,8 @@ const HIDDEN_SCROLLBAR =
   '[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
 export const IMAGE_SIZE_OPTIONS = [
-  { label: '1:1', value: '1:1', pixels: '2048x2048' },
-  { label: '4:3', value: '4:3', pixels: '2400x1800' },
-  { label: '3:4', value: '3:4', pixels: '1800x2400' },
-  { label: '4:5', value: '4:5', pixels: '1920x2400' },
-  { label: '5:4', value: '5:4', pixels: '2400x1920' },
-  { label: '3:2', value: '3:2', pixels: '2400x1600' },
-  { label: '2:3', value: '2:3', pixels: '1600x2400' },
-  { label: '16:9', value: '16:9', pixels: '2560x1440' },
-  { label: '9:16', value: '9:16', pixels: '1440x2560' },
-  { label: '21:9', value: '21:9', pixels: '2960x1269' },
-  { label: '9:21', value: '9:21', pixels: '1269x2960' },
+  { label: '1:1', value: '800x800', pixels: '800x800' },
+  { label: '9:16', value: '750x1334', pixels: '750x1334' },
 ];
 
 interface ChatSidebarProps {
@@ -325,13 +316,20 @@ function SizeConfigMenu({
   activeSizeId: string | null;
   onSelectSize: (sizeId: string | null) => void;
 }) {
+  const customSizeMatch = activeSizeId?.match(/^(\d{2,5})x(\d{2,5})$/i);
+  const [customWidth, setCustomWidth] = useState(customSizeMatch?.[1] || '');
+  const [customHeight, setCustomHeight] = useState(customSizeMatch?.[2] || '');
+  const customSizeValue =
+    customWidth.trim() && customHeight.trim() ? `${customWidth.trim()}x${customHeight.trim()}` : '';
+  const canApplyCustomSize = /^\d{2,5}x\d{2,5}$/i.test(customSizeValue);
+
   return (
     <MenuPanel>
       <div className="mb-2 flex items-center gap-2 border-b border-white/[0.06] pb-2">
         <Ruler className="h-4 w-4 text-cyan-300" />
         <span className="text-[12px] font-medium text-white">生图尺寸</span>
       </div>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5">
         {IMAGE_SIZE_OPTIONS.map((option) => (
           <button
             key={option.value}
@@ -348,6 +346,35 @@ function SizeConfigMenu({
           </button>
         ))}
       </div>
+      <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
+        <input
+          value={customWidth}
+          onChange={(event) => setCustomWidth(event.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+          inputMode="numeric"
+          placeholder="宽"
+          className="h-9 min-w-0 rounded-[10px] border border-white/[0.06] bg-[#151920] px-2 text-center text-[12px] text-white outline-none placeholder:text-slate-500"
+        />
+        <span className="text-[11px] text-slate-500">x</span>
+        <input
+          value={customHeight}
+          onChange={(event) => setCustomHeight(event.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+          inputMode="numeric"
+          placeholder="高"
+          className="h-9 min-w-0 rounded-[10px] border border-white/[0.06] bg-[#151920] px-2 text-center text-[12px] text-white outline-none placeholder:text-slate-500"
+        />
+      </div>
+      <button
+        type="button"
+        disabled={!canApplyCustomSize}
+        onClick={() => onSelectSize(customSizeValue)}
+        className={`mt-1.5 w-full rounded-[10px] px-3 py-1.5 text-[11px] transition ${
+          activeSizeId === customSizeValue && customSizeValue
+            ? 'bg-cyan-500/15 text-cyan-100'
+            : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+        } disabled:cursor-not-allowed disabled:opacity-45`}
+      >
+        使用自定义尺寸
+      </button>
       <button
         type="button"
         onClick={() => onSelectSize(null)}
@@ -424,6 +451,8 @@ function ChatSidebar({
     brandTemplates.find((item) => item.id === activeBrandTemplateId)?.name || '未选择';
   const displaySizeLabel =
     IMAGE_SIZE_OPTIONS.find((item) => item.value === activeSizeId)?.label || '尺寸';
+  const resolvedDisplaySizeLabel =
+    IMAGE_SIZE_OPTIONS.find((item) => item.value === activeSizeId)?.label || activeSizeId || '尺寸';
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messageCount = currentSession?.messages.length ?? 0;
   const latestMessageKey = currentSession?.messages[messageCount - 1]?.id ?? '';
@@ -768,14 +797,14 @@ function ChatSidebar({
                         }`}
                       >
                         <Ruler className="h-3.5 w-3.5" />
-                        {displaySizeLabel}
+                        {resolvedDisplaySizeLabel}
                         <ChevronDown
                           className={`h-3 w-3 transition ${isSizeConfigMenuOpen ? 'rotate-180' : ''}`}
                         />
                       </button>
 
                       {isSizeConfigMenuOpen ? (
-                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[200px]">
+                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[240px]">
                           <SizeConfigMenu
                             activeSizeId={activeSizeId}
                             onSelectSize={onSelectSize}

@@ -17,10 +17,12 @@ import HomeChatWorkspace from './HomeChatWorkspace';
 import { AiVisionLaunchIntent, AppRoute, BrandSpec, ChatInputImage, Project } from '../types';
 import {
   createNewProject,
+  deleteBrandSpec,
   deleteProject,
   getBrandSpecs,
   getModelSettings,
   getProjects,
+  upsertBrandSpec,
 } from '../store';
 import {
   CHAT_IMAGE_LIMIT,
@@ -41,17 +43,8 @@ const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
 
 const PROJECTS_PER_PAGE = 11;
 const HOME_IMAGE_SIZE_OPTIONS = [
-  { label: '1:1', value: '1:1', pixels: '2048x2048' },
-  { label: '4:3', value: '4:3', pixels: '2400x1800' },
-  { label: '3:4', value: '3:4', pixels: '1800x2400' },
-  { label: '4:5', value: '4:5', pixels: '1920x2400' },
-  { label: '5:4', value: '5:4', pixels: '2400x1920' },
-  { label: '3:2', value: '3:2', pixels: '2400x1600' },
-  { label: '2:3', value: '2:3', pixels: '1600x2400' },
-  { label: '16:9', value: '16:9', pixels: '2560x1440' },
-  { label: '9:16', value: '9:16', pixels: '1440x2560' },
-  { label: '21:9', value: '21:9', pixels: '2960x1269' },
-  { label: '9:21', value: '9:21', pixels: '1269x2960' },
+  { label: '1:1', value: '800x800', pixels: '800x800' },
+  { label: '9:16', value: '750x1334', pixels: '750x1334' },
 ];
 
 type ProjectPreviewMedia =
@@ -102,6 +95,202 @@ function HomeMenuPanel({ children }: { children: React.ReactNode }) {
     <div className="rounded-[22px] border border-white/[0.05] bg-[#1b1e25]/98 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
       {children}
     </div>
+  );
+}
+
+function HomeBrandSpecMenu({
+  brandSpecs,
+  activeBrandSpecId,
+  onSelectBrandSpec,
+  onSaveBrandSpec,
+  onCreateBrandSpec,
+  onDeleteBrandSpec,
+}: {
+  brandSpecs: BrandSpec[];
+  activeBrandSpecId: string;
+  onSelectBrandSpec: (brandSpecId: string) => void;
+  onSaveBrandSpec: (brandSpecId: string, specText: string) => Promise<void>;
+  onCreateBrandSpec: (brandName: string) => Promise<void>;
+  onDeleteBrandSpec: (brandSpecId: string) => Promise<void>;
+}) {
+  const [selectedBrandSpecId, setSelectedBrandSpecId] = useState(activeBrandSpecId);
+  const [specTextDraft, setSpecTextDraft] = useState('');
+  const [newBrandName, setNewBrandName] = useState('');
+
+  useEffect(() => {
+    const nextId =
+      activeBrandSpecId && brandSpecs.some((item) => item.id === activeBrandSpecId)
+        ? activeBrandSpecId
+        : '';
+    setSelectedBrandSpecId(nextId);
+  }, [activeBrandSpecId, brandSpecs]);
+
+  const selectedBrandSpec = useMemo(
+    () => brandSpecs.find((item) => item.id === selectedBrandSpecId) || null,
+    [brandSpecs, selectedBrandSpecId]
+  );
+
+  useEffect(() => {
+    setSpecTextDraft(selectedBrandSpec?.specText || '');
+  }, [selectedBrandSpec]);
+
+  return (
+    <div className="max-h-[70vh] overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <HomeMenuPanel>
+        <div className="space-y-2">
+          <select
+            value={selectedBrandSpecId}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              setSelectedBrandSpecId(nextId);
+              onSelectBrandSpec(nextId);
+            }}
+            className="h-9 w-full rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 text-[12px] text-white outline-none"
+          >
+            <option value="">不使用品牌规范</option>
+            {brandSpecs.map((spec) => (
+              <option key={spec.id} value={spec.id}>
+                {spec.brandName}
+              </option>
+            ))}
+          </select>
+
+          <textarea
+            value={specTextDraft}
+            onChange={(event) => setSpecTextDraft(event.target.value)}
+            rows={8}
+            placeholder="维护当前品牌规范..."
+            className="w-full resize-none rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 py-2 text-[12px] leading-5 text-white outline-none placeholder:text-slate-500"
+          />
+
+          <button
+            type="button"
+            disabled={!selectedBrandSpec}
+            onClick={() => {
+              if (!selectedBrandSpec) return;
+              void onSaveBrandSpec(selectedBrandSpec.id, specTextDraft);
+            }}
+            className="inline-flex h-9 w-full items-center justify-center rounded-[12px] bg-white/[0.08] text-[12px] text-white transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            保存规范
+          </button>
+        </div>
+
+        <div className="mt-2.5 flex items-center gap-2">
+          <input
+            value={newBrandName}
+            onChange={(event) => setNewBrandName(event.target.value)}
+            placeholder="新增品牌名"
+            className="h-9 flex-1 rounded-[12px] border border-white/[0.06] bg-[#151920] px-3 text-[12px] text-white outline-none placeholder:text-slate-500"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const nextName = newBrandName.trim();
+              if (!nextName) return;
+              void onCreateBrandSpec(nextName);
+              setNewBrandName('');
+            }}
+            className="inline-flex h-9 items-center justify-center rounded-[12px] bg-white/[0.08] px-3 text-[12px] text-white transition hover:bg-white/[0.12]"
+          >
+            新增
+          </button>
+        </div>
+
+        {selectedBrandSpec ? (
+          <button
+            type="button"
+            onClick={() => {
+              void onDeleteBrandSpec(selectedBrandSpec.id);
+            }}
+            className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-[12px] border border-rose-300/30 bg-rose-500/10 text-[12px] text-rose-100 transition hover:bg-rose-500/15"
+          >
+            删除当前品牌规范
+          </button>
+        ) : null}
+      </HomeMenuPanel>
+    </div>
+  );
+}
+
+function HomeSizeConfigMenu({
+  activeSizeId,
+  onSelectSize,
+}: {
+  activeSizeId: string;
+  onSelectSize: (sizeId: string) => void;
+}) {
+  const customSizeMatch = activeSizeId.match(/^(\d{2,5})x(\d{2,5})$/i);
+  const [customWidth, setCustomWidth] = useState(customSizeMatch?.[1] || '');
+  const [customHeight, setCustomHeight] = useState(customSizeMatch?.[2] || '');
+  const customSizeValue =
+    customWidth.trim() && customHeight.trim() ? `${customWidth.trim()}x${customHeight.trim()}` : '';
+  const canApplyCustomSize = /^\d{2,5}x\d{2,5}$/i.test(customSizeValue);
+
+  return (
+    <HomeMenuPanel>
+      <div className="mb-2 flex items-center gap-2 border-b border-white/[0.06] pb-2">
+        <Ruler className="h-4 w-4 text-cyan-300" />
+        <span className="text-[12px] font-medium text-white">生图尺寸</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {HOME_IMAGE_SIZE_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onSelectSize(option.value)}
+            className={`flex flex-col items-center rounded-[10px] px-2 py-1.5 text-[11px] transition ${
+              activeSizeId === option.value
+                ? 'bg-cyan-500/15 text-cyan-100'
+                : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+            }`}
+          >
+            <span className="font-medium">{option.label}</span>
+            <span className="text-[9px] text-slate-500">{option.pixels}</span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
+        <input
+          value={customWidth}
+          onChange={(event) => setCustomWidth(event.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+          inputMode="numeric"
+          placeholder="宽"
+          className="h-9 min-w-0 rounded-[10px] border border-white/[0.06] bg-[#151920] px-2 text-center text-[12px] text-white outline-none placeholder:text-slate-500"
+        />
+        <span className="text-[11px] text-slate-500">x</span>
+        <input
+          value={customHeight}
+          onChange={(event) => setCustomHeight(event.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+          inputMode="numeric"
+          placeholder="高"
+          className="h-9 min-w-0 rounded-[10px] border border-white/[0.06] bg-[#151920] px-2 text-center text-[12px] text-white outline-none placeholder:text-slate-500"
+        />
+      </div>
+      <button
+        type="button"
+        disabled={!canApplyCustomSize}
+        onClick={() => onSelectSize(customSizeValue)}
+        className={`mt-1.5 w-full rounded-[10px] px-3 py-1.5 text-[11px] transition ${
+          activeSizeId === customSizeValue && customSizeValue
+            ? 'bg-cyan-500/15 text-cyan-100'
+            : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+        } disabled:cursor-not-allowed disabled:opacity-45`}
+      >
+        使用自定义尺寸
+      </button>
+      <button
+        type="button"
+        onClick={() => onSelectSize('')}
+        className={`mt-2 w-full rounded-[10px] px-3 py-1.5 text-[11px] transition ${
+          !activeSizeId
+            ? 'bg-cyan-500/15 text-cyan-100'
+            : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+        }`}
+      >
+        不指定尺寸
+      </button>
+    </HomeMenuPanel>
   );
 }
 
@@ -382,6 +571,41 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     }
   };
 
+  const handleSelectLaunchBrandSpec = (brandSpecId: string) => {
+    setLaunchBrandSpecId(brandSpecId);
+  };
+
+  const handleSaveLaunchBrandSpec = async (brandSpecId: string, specText: string) => {
+    const existing = launchBrandSpecs.find((item) => item.id === brandSpecId);
+    if (!existing) return;
+    const nextSpec = upsertBrandSpec(existing.brandName, specText);
+    setLaunchBrandSpecs((previous) =>
+      previous.map((item) => (item.id === nextSpec.id ? nextSpec : item))
+    );
+    setLaunchBrandSpecId(nextSpec.id);
+  };
+
+  const handleCreateLaunchBrandSpec = async (brandName: string) => {
+    const trimmedName = brandName.trim();
+    if (!trimmedName) return;
+    const nextSpec = upsertBrandSpec(trimmedName, '');
+    setLaunchBrandSpecs((previous) => {
+      const withoutDuplicate = previous.filter((item) => item.id !== nextSpec.id);
+      return [nextSpec, ...withoutDuplicate];
+    });
+    setLaunchBrandSpecId(nextSpec.id);
+  };
+
+  const handleDeleteLaunchBrandSpec = async (brandSpecId: string) => {
+    const nextSpecs = deleteBrandSpec(brandSpecId);
+    setLaunchBrandSpecs(nextSpecs);
+    setLaunchBrandSpecId((previous) =>
+      previous === brandSpecId
+        ? nextSpecs.find((item) => item.id === previous)?.id || ''
+        : previous
+    );
+  };
+
   const renderDesignContent = () => {
     const canLaunch = !isLaunchingProject && (launchPrompt.trim().length > 0 || launchImages.length > 0);
     const displayBrandSpecName =
@@ -392,6 +616,10 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
       launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '品牌规范';
     const normalizedSizeLabel =
       HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '尺寸';
+    const launchActiveBrandName =
+      launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '未选择';
+    const resolvedLaunchSizeLabel =
+      HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || launchSizeId || '尺寸';
     const activeBrandSpecName =
       launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '鍝佺墝瑙勮寖';
     const activeSizeLabel =
@@ -399,16 +627,16 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     return (
       <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
         <div className="mx-auto max-w-[1560px]">
-          <header className="relative mb-6 px-6 pt-2">
+          <header className="relative z-[120] mb-6 px-6 pt-2">
 
             <div className="relative">
               <div className="mx-auto -mt-1 max-w-[860px] text-center">
                 <h2 className="relative mt-1 text-[22px] font-semibold tracking-[0.01em] text-transparent md:text-[24px]" aria-label="众唯 AI 设计">
-                  <span className="pointer-events-none absolute inset-0 text-white">众唯 AI 设计</span>
-                  众唯 AI 设计
+                  <span className="pointer-events-none absolute inset-0 text-white">电商爆款，图由你生</span>
+                  电商爆款，图由你生
                 </h2>
                 <p className="mx-auto mt-2 max-w-[820px] text-[13px] leading-6 text-slate-300">
-                  顶部对话框直接发起创作，发送后会创建全新画布并自动进入项目。
+                  发起对话，立即体验众唯1.3
                 </p>
               </div>
               <button
@@ -421,7 +649,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
               </button>
             </div>
 
-            <div className="relative isolate mt-3 flex justify-center overflow-hidden py-3">
+            <div className="relative isolate mt-3 flex justify-center overflow-visible py-3">
               <div className="home-chat-line-sweep pointer-events-none absolute left-0 right-0 top-1/2 z-0 h-px -translate-y-1/2" />
               <div className="relative z-10 w-full max-w-[860px] rounded-[24px] border border-white/[0.08] bg-[#171b22]/82 p-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
                 <div className="mb-1.5 flex items-center gap-1.5 overflow-x-auto px-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -503,7 +731,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                       <ChevronDown className={`h-3 w-3 transition ${isLaunchModelMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isLaunchModelMenuOpen ? (
-                      <div className="absolute bottom-full left-0 z-40 mb-2 w-[172px]">
+                      <div className="absolute left-0 top-full z-[200] mt-3 w-[172px]">
                         <HomeMenuPanel>
                           <div className="space-y-1">
                             {IMAGE_MODEL_OPTIONS.map((option) => (
@@ -543,48 +771,19 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                           : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
                       }`}
                     >
-                      {normalizedBrandSpecName}
+                      {launchActiveBrandName}规范
                       <ChevronDown className={`h-3 w-3 transition ${isLaunchBrandSpecMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isLaunchBrandSpecMenuOpen ? (
-                      <div className="absolute bottom-full left-0 z-40 mb-2 w-[220px]">
-                        <HomeMenuPanel>
-                          <div className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setLaunchBrandSpecId('');
-                                setIsLaunchBrandSpecMenuOpen(false);
-                              }}
-                              className={`flex w-full items-center justify-between rounded-[12px] px-3 py-2 text-[12px] transition ${
-                                !launchBrandSpecId
-                                  ? 'bg-cyan-500/15 text-cyan-100'
-                                  : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
-                              }`}
-                              style={{ fontSize: 0 }}
-                            >
-                              <span className="text-[12px]">{'\u54c1\u724c\u89c4\u8303'}</span>
-                              品牌规范
-                            </button>
-                            {launchBrandSpecs.map((spec) => (
-                              <button
-                                key={spec.id}
-                                type="button"
-                                onClick={() => {
-                                  setLaunchBrandSpecId(spec.id);
-                                  setIsLaunchBrandSpecMenuOpen(false);
-                                }}
-                                className={`flex w-full items-center justify-between rounded-[12px] px-3 py-2 text-[12px] transition ${
-                                  launchBrandSpecId === spec.id
-                                    ? 'bg-cyan-500/15 text-cyan-100'
-                                    : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
-                                }`}
-                              >
-                                {spec.brandName}
-                              </button>
-                            ))}
-                          </div>
-                        </HomeMenuPanel>
+                      <div className="absolute left-0 top-full z-[200] mt-3 w-[min(340px,calc(100vw-32px))]">
+                        <HomeBrandSpecMenu
+                          brandSpecs={launchBrandSpecs}
+                          activeBrandSpecId={launchBrandSpecId}
+                          onSelectBrandSpec={handleSelectLaunchBrandSpec}
+                          onSaveBrandSpec={handleSaveLaunchBrandSpec}
+                          onCreateBrandSpec={handleCreateLaunchBrandSpec}
+                          onDeleteBrandSpec={handleDeleteLaunchBrandSpec}
+                        />
                       </div>
                     ) : null}
                   </div>
@@ -604,13 +803,20 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                       }`}
                     >
                       <Ruler className="h-3.5 w-3.5" />
-                      {normalizedSizeLabel}
+                      {resolvedLaunchSizeLabel}
                       <ChevronDown className={`h-3 w-3 transition ${isLaunchSizeMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isLaunchSizeMenuOpen ? (
-                      <div className="absolute bottom-full left-0 z-40 mb-2 w-[200px]">
-                        <HomeMenuPanel>
-                          <div className="grid grid-cols-3 gap-1.5">
+                      <div className="absolute left-0 top-full z-[200] mt-3 w-[240px]">
+                        <HomeSizeConfigMenu
+                          activeSizeId={launchSizeId}
+                          onSelectSize={(sizeId) => {
+                            setLaunchSizeId(sizeId);
+                            setIsLaunchSizeMenuOpen(false);
+                          }}
+                        />
+                        <div className="hidden">
+                          <div className="grid grid-cols-2 gap-1.5">
                             {HOME_IMAGE_SIZE_OPTIONS.map((option) => (
                               <button
                                 key={option.value}
@@ -646,7 +852,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                             <span className="text-[11px]">{'\u4e0d\u6307\u5b9a\u5c3a\u5bf8'}</span>
                             不指定尺寸
                           </button>
-                        </HomeMenuPanel>
+                        </div>
                       </div>
                     ) : null}
                   </div>
