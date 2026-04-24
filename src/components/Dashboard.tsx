@@ -43,8 +43,8 @@ const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
 
 const PROJECTS_PER_PAGE = 11;
 const HOME_IMAGE_SIZE_OPTIONS = [
-  { label: '1:1', value: '800x800', pixels: '800x800' },
-  { label: '9:16', value: '750x1334', pixels: '750x1334' },
+  { label: '1:1', value: '1920x1920', pixels: '1920x1920' },
+  { label: '9:16', value: '1440x2560', pixels: '1440x2560' },
 ];
 
 type ProjectPreviewMedia =

@@ -1458,7 +1458,7 @@ function buildDoubaoImagePayload(
     payload.output_format = 'png';
   }
   if (intent.explicitSize) {
-    // 仅在用户明确要求尺寸时透传
+    // 仅在用户明确要求尺寸时透传。
     payload.size = intent.explicitSize;
   }
   if (intent.isGroupOutput) {
