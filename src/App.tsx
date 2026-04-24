@@ -73,6 +73,7 @@ export default function App() {
 
     return (
       <AiVisionWorkspace
+        key={activeProject.id}
         project={activeProject}
         onBack={() => setCurrentRoute('design')}
         onOpenProject={openProject}

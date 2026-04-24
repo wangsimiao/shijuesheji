@@ -593,7 +593,7 @@ export default function ChatSidebar({
                             : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
                         }`}
                       >
-                        {activeBrandName}+规范
+                        {activeBrandName}规范
                         <ChevronDown
                           className={`h-3 w-3 transition ${isBrandSpecMenuOpen ? 'rotate-180' : ''}`}
                         />
