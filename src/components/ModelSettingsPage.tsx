@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, RefreshCcw, Save, Settings2 } from 'lucide-react';
+import { ArrowLeft, RefreshCcw, Save } from 'lucide-react';
 import type { ModelSettings } from '../types';
 import {
   createDefaultModelSettings,
@@ -42,7 +42,7 @@ function ProviderCard({
   onImageModelChange: (value: string) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#0f1522]/92 p-5 shadow-[0_20px_48px_rgba(2,6,23,0.35)]">
+    <section className="rounded-[20px] border border-white/[0.08] bg-[#151923] p-5 shadow-[0_16px_34px_rgba(0,0,0,0.24)]">
       <div className="mb-5">
         <h3 className="text-lg font-semibold text-white">{title}</h3>
         <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
@@ -54,7 +54,7 @@ function ProviderCard({
           <input
             value={apiBaseUrl}
             onChange={(event) => onApiBaseUrlChange(event.target.value)}
-            className="h-11 rounded-xl border border-white/10 bg-[#090d16] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
+            className="h-11 rounded-[12px] border border-white/[0.08] bg-[#101116] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
             placeholder="请输入接口地址"
           />
         </label>
@@ -65,7 +65,7 @@ function ProviderCard({
             type="password"
             value={apiKey}
             onChange={(event) => onApiKeyChange(event.target.value)}
-            className="h-11 rounded-xl border border-white/10 bg-[#090d16] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
+            className="h-11 rounded-[12px] border border-white/[0.08] bg-[#101116] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
             placeholder="请输入 API Key"
           />
         </label>
@@ -75,7 +75,7 @@ function ProviderCard({
           <select
             value={imageModel}
             onChange={(event) => onImageModelChange(event.target.value)}
-            className="h-11 rounded-xl border border-white/10 bg-[#090d16] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
+            className="h-11 rounded-[12px] border border-white/[0.08] bg-[#101116] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
           >
             {modelOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -124,14 +124,13 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
   };
 
   return (
-    <div className="h-screen overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,#1d345a_0%,#0a1020_36%,#070b13_72%)] p-6">
+    <div className="h-screen overflow-y-auto bg-[#070a12] p-6 text-slate-100 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
       <div className="mx-auto w-full max-w-[1560px] space-y-6">
-        <section className="relative mb-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] px-6 py-5 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
-          <div className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-16 left-16 h-40 w-40 rounded-full bg-cyan-500/18 blur-3xl" />
+        <section className="relative mb-6 rounded-[20px] border border-white/[0.08] bg-[#121621] px-6 py-5 shadow-[0_16px_34px_rgba(0,0,0,0.24)]">
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <h1 className="mt-2 text-[30px] font-semibold tracking-[0.01em] text-white">
+              <h1 className="mt-1 text-[0px] font-semibold tracking-[0.01em] text-white">
+                <span className="text-[24px]">模型配置</span>
                 模型连接配置中心
               </h1>
               <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
@@ -174,7 +173,7 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
           ) : null}
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#0f1522]/92 p-5 shadow-[0_20px_48px_rgba(2,6,23,0.35)]">
+        <section className="rounded-[20px] border border-white/[0.08] bg-[#151923] p-5 shadow-[0_16px_34px_rgba(0,0,0,0.24)]">
           <label className="grid gap-2">
             <span className="text-sm font-medium text-slate-200">默认 AI 设计出图模型</span>
             <select
@@ -185,7 +184,7 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
                   defaultAiVisionImageModel: event.target.value,
                 }))
               }
-              className="h-11 max-w-[320px] rounded-xl border border-white/10 bg-[#090d16] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
+              className="h-11 max-w-[320px] rounded-[12px] border border-white/[0.08] bg-[#101116] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
             >
               {AI_VISION_IMAGE_MODEL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>

@@ -650,7 +650,6 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
             </div>
 
             <div className="relative isolate mt-3 flex justify-center overflow-visible py-3">
-              <div className="home-chat-line-sweep pointer-events-none absolute left-0 right-0 top-1/2 z-0 h-px -translate-y-1/2" />
               <div className="relative z-10 w-full max-w-[860px] rounded-[24px] border border-white/[0.08] bg-[#171b22]/82 p-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
                 <div className="mb-1.5 flex items-center gap-1.5 overflow-x-auto px-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {launchImages.map((item) => (
