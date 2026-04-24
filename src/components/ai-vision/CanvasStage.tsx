@@ -519,7 +519,7 @@ export default function CanvasStage({
                     </div>
                   ) : null}
 
-                  {item.type === 'loading' ? (
+                  {false && item.type === 'loading' ? (
                     <div className="relative h-full w-full overflow-hidden border border-[#8298bf]/45 bg-[#151b26]">
                       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(126,150,191,0.26),transparent_48%),radial-gradient(circle_at_82%_78%,rgba(73,88,120,0.22),transparent_44%)]" />
                       <div className="pointer-events-none absolute inset-0 animate-pulse bg-[linear-gradient(112deg,rgba(37,47,66,0.62)_6%,rgba(82,101,132,0.36)_18%,rgba(37,47,66,0.62)_34%)] [background-size:220%_100%]" />
@@ -541,6 +541,17 @@ export default function CanvasStage({
                             {item.content || '请稍候，生成完成后会自动替换此占位。'}
                           </p>
                         </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {item.type === 'loading' ? (
+                    <div className="relative flex h-full w-full items-center justify-center overflow-hidden border border-[#8298bf]/45 bg-[#151b26]">
+                      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(126,150,191,0.24),transparent_48%),radial-gradient(circle_at_82%_78%,rgba(73,88,120,0.2),transparent_44%)]" />
+                      <div className="pointer-events-none absolute inset-0 animate-pulse bg-[linear-gradient(112deg,rgba(37,47,66,0.56)_6%,rgba(82,101,132,0.32)_18%,rgba(37,47,66,0.56)_34%)] [background-size:220%_100%]" />
+                      <div className="relative z-10 inline-flex items-center gap-2 rounded-full border border-[#9fb2d1]/35 bg-[#2a3750]/72 px-3.5 py-2 text-[13px] font-medium text-[#edf3ff]">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        AI生图中
                       </div>
                     </div>
                   ) : null}
