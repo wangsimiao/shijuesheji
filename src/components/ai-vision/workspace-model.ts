@@ -194,7 +194,7 @@ export const DEFAULT_CROP_RECT: CanvasCrop = {
 };
 export const CROP_MIN_SIZE = 0.1;
 export const FIT_VIEW_PADDING = 120;
-export const MIN_SCALE = 0.35;
+export const MIN_SCALE = 0.1;
 export const MAX_SCALE = 2.4;
 export const CANVAS_WHEEL_LOCK_MS = 220;
 export const CANVAS_ZOOM_STEP = 1.12;

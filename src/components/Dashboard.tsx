@@ -323,10 +323,9 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
           <div className="pointer-events-none absolute -bottom-16 left-16 h-40 w-40 rounded-full bg-cyan-500/18 blur-3xl" />
           <div className="relative flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-[12px] uppercase tracking-[0.2em] text-slate-400">AI Design</div>
-            <h2 className="mt-2 text-[30px] font-semibold tracking-[0.01em] text-white">众唯 AI 设计 1.1</h2>
+            <h2 className="mt-2 text-[30px] font-semibold tracking-[0.01em] text-white">众唯 AI 设计 v1.1</h2>
             <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
-              直接从这里继续你的画板创作。选择项目即可进入画布，所有会话、素材与版本都会被保留。
+              直接从这里继续你的画板创作。ps：留用素材尽快下载，目前存储有限。
             </p>
             </div>
             <button
