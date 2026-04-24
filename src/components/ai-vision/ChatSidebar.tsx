@@ -6,6 +6,7 @@ import {
   ImagePlus,
   Loader2,
   Plus,
+  Ruler,
   Send,
   Trash2,
   X,
@@ -22,6 +23,20 @@ import {
 
 const HIDDEN_SCROLLBAR =
   '[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+
+export const IMAGE_SIZE_OPTIONS = [
+  { label: '1:1', value: '1:1', pixels: '2048x2048' },
+  { label: '4:3', value: '4:3', pixels: '2400x1800' },
+  { label: '3:4', value: '3:4', pixels: '1800x2400' },
+  { label: '4:5', value: '4:5', pixels: '1920x2400' },
+  { label: '5:4', value: '5:4', pixels: '2400x1920' },
+  { label: '3:2', value: '3:2', pixels: '2400x1600' },
+  { label: '2:3', value: '2:3', pixels: '1600x2400' },
+  { label: '16:9', value: '16:9', pixels: '2560x1440' },
+  { label: '9:16', value: '9:16', pixels: '1440x2560' },
+  { label: '21:9', value: '21:9', pixels: '2960x1269' },
+  { label: '9:21', value: '9:21', pixels: '1269x2960' },
+];
 
 interface ChatSidebarProps {
   projectTitle: string;
@@ -48,12 +63,16 @@ interface ChatSidebarProps {
   historyMenuRef: RefObject<HTMLDivElement | null>;
   brandSpecMenuRef: RefObject<HTMLDivElement | null>;
   brandMenuRef: RefObject<HTMLDivElement | null>;
+  sizeConfigMenuRef: RefObject<HTMLDivElement | null>;
   chatUploadInputRef: RefObject<HTMLInputElement | null>;
   brandTemplateInputRef: RefObject<HTMLInputElement | null>;
+  activeSizeId: string | null;
+  isSizeConfigMenuOpen: boolean;
   onToggleCollapsed: () => void;
   onToggleHistoryMenu: () => void;
   onToggleBrandSpecMenu: () => void;
   onToggleBrandMenu: () => void;
+  onToggleSizeConfigMenu: () => void;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
   onSelectScene: (scene: SceneTab) => void;
@@ -68,6 +87,7 @@ interface ChatSidebarProps {
   onUploadBrandTemplate: (file: File) => Promise<void>;
   onUploadReferenceImage: (file: File) => Promise<void>;
   onSendMessage: () => Promise<void>;
+  onSelectSize: (sizeId: string | null) => void;
 }
 
 function MenuPanel({ children }: { children: React.ReactNode }) {
@@ -297,6 +317,51 @@ function BrandSpecMenu({
   );
 }
 
+function SizeConfigMenu({
+  activeSizeId,
+  onSelectSize,
+}: {
+  activeSizeId: string | null;
+  onSelectSize: (sizeId: string | null) => void;
+}) {
+  return (
+    <MenuPanel>
+      <div className="mb-2 flex items-center gap-2 border-b border-white/[0.06] pb-2">
+        <Ruler className="h-4 w-4 text-cyan-300" />
+        <span className="text-[12px] font-medium text-white">生图尺寸</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {IMAGE_SIZE_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onSelectSize(option.value)}
+            className={`flex flex-col items-center rounded-[10px] px-2 py-1.5 text-[11px] transition ${
+              activeSizeId === option.value
+                ? 'bg-cyan-500/15 text-cyan-100'
+                : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+            }`}
+          >
+            <span className="font-medium">{option.label}</span>
+            <span className="text-[9px] text-slate-500">{option.pixels}</span>
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => onSelectSize(null)}
+        className={`mt-2 w-full rounded-[10px] px-3 py-1.5 text-[11px] transition ${
+          !activeSizeId
+            ? 'bg-cyan-500/15 text-cyan-100'
+            : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+        }`}
+      >
+        不指定尺寸
+      </button>
+    </MenuPanel>
+  );
+}
+
 export default function ChatSidebar({
   projectTitle,
   currentSession,
@@ -321,12 +386,16 @@ export default function ChatSidebar({
   historyMenuRef,
   brandSpecMenuRef,
   brandMenuRef,
+  sizeConfigMenuRef,
   chatUploadInputRef,
   brandTemplateInputRef,
+  activeSizeId,
+  isSizeConfigMenuOpen,
   onToggleCollapsed,
   onToggleHistoryMenu,
   onToggleBrandSpecMenu,
   onToggleBrandMenu,
+  onToggleSizeConfigMenu,
   onCreateSession,
   onSwitchSession,
   onSetChatInput,
@@ -340,6 +409,7 @@ export default function ChatSidebar({
   onUploadBrandTemplate,
   onUploadReferenceImage,
   onSendMessage,
+  onSelectSize,
 }: ChatSidebarProps) {
   const canSend = !isChatLoading && (chatInput.trim().length > 0 || chatInputImages.length > 0);
   const hasImageLoadingMessage = Boolean(
@@ -652,6 +722,33 @@ export default function ChatSidebar({
                             onSaveBrandSpec={onSaveBrandSpec}
                             onCreateBrandSpec={onCreateBrandSpec}
                             onDeleteBrandSpec={onDeleteBrandSpec}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div ref={sizeConfigMenuRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={onToggleSizeConfigMenu}
+                        className={`inline-flex h-9 items-center gap-1 rounded-[12px] border px-3 text-[12px] transition ${
+                          activeSizeId
+                            ? 'border-cyan-300/45 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15'
+                            : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
+                        }`}
+                      >
+                        <Ruler className="h-3.5 w-3.5" />
+                        {activeSizeId ? activeSizeId : '尺寸'}
+                        <ChevronDown
+                          className={`h-3 w-3 transition ${isSizeConfigMenuOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+
+                      {isSizeConfigMenuOpen ? (
+                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[200px]">
+                          <SizeConfigMenu
+                            activeSizeId={activeSizeId}
+                            onSelectSize={onSelectSize}
                           />
                         </div>
                       ) : null}

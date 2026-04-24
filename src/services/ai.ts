@@ -114,15 +114,21 @@ const DOUBAO_REFERENCE_IMAGE_MAX_PIXELS = 36_000_000;
 const DOUBAO_REFERENCE_IMAGE_MIN_EDGE = 14;
 const DOUBAO_REFERENCE_IMAGE_MAX_RATIO = 16;
 const GROUP_OUTPUT_DEFAULT_COUNT = 4;
-const GROUP_OUTPUT_MIN_COUNT = 2;
-const GROUP_OUTPUT_MAX_COUNT = 4;
+export const GROUP_OUTPUT_MIN_COUNT = 2;
+export const GROUP_OUTPUT_MAX_COUNT = 15;
 
 const SIZE_RATIO_MAP: Record<string, string> = {
   '1:1': '2048x2048',
-  '4:3': '2048x1536',
-  '3:4': '1536x2048',
-  '16:9': '2048x1152',
-  '9:16': '1152x2048',
+  '4:3': '2400x1800',
+  '3:4': '1800x2400',
+  '4:5': '1920x2400',
+  '5:4': '2400x1920',
+  '3:2': '2400x1600',
+  '2:3': '1600x2400',
+  '16:9': '2560x1440',
+  '9:16': '1440x2560',
+  '21:9': '2960x1269',
+  '9:21': '1269x2960',
 };
 
 export const generateImageTool = {
@@ -144,7 +150,7 @@ export const generateImageTool = {
       },
       outputCount: {
         type: 'number',
-        description: 'Optional output count for grouped generation, supports 2~4.',
+        description: 'Optional output count for grouped generation, supports 2~15.',
       },
       sizeHint: {
         type: 'string',
@@ -447,6 +453,40 @@ function hasGroupOutputIntent(prompt: string) {
   return keywords.some((keyword) => normalized.includes(keyword));
 }
 
+function parseOutputCountFromPromptV2(prompt: string): number | undefined {
+  const matchers: RegExp[] = [
+    /(1[0-5]|[1-9])\s*(?:张|幅|个|组|图|images?|pics?|posters?|variations?)/i,
+    /(?:生成|给我|来|要|做)\s*(1[0-5]|[1-9])\s*(?:张|幅|个|组|图|images?|pics?|posters?|variations?)/i,
+    /(?:x|×|脳)\s*(1[0-5]|[1-9])\s*(?:张|幅|个|组|图|images?|pics?|posters?|variations?)/i,
+    /\b(1[0-5]|[1-9])\s*(?:images?|variations?)\b/i,
+  ];
+
+  for (const matcher of matchers) {
+    const matched = prompt.match(matcher);
+    if (!matched?.[1]) continue;
+    const parsed = Number.parseInt(matched[1], 10);
+    if (Number.isNaN(parsed)) continue;
+    if (parsed <= 1) return 1;
+    return clampOutputCount(parsed);
+  }
+
+  if (/(two|双图|两张|二张|2张)/i.test(prompt)) return 2;
+  if (/(three|三张|3张)/i.test(prompt)) return 3;
+  if (/(four|四张|4张)/i.test(prompt)) return 4;
+  if (/(five|五张|5张)/i.test(prompt)) return 5;
+  if (/(six|六张|6张)/i.test(prompt)) return 6;
+  if (/(seven|七张|7张)/i.test(prompt)) return 7;
+  if (/(eight|八张|8张)/i.test(prompt)) return 8;
+  if (/(nine|九张|9张)/i.test(prompt)) return 9;
+  if (/(ten|十张|10张)/i.test(prompt)) return 10;
+  if (/(eleven|十一张|11张)/i.test(prompt)) return 11;
+  if (/(twelve|十二张|12张)/i.test(prompt)) return 12;
+  if (/(thirteen|十三张|13张)/i.test(prompt)) return 13;
+  if (/(fourteen|十四张|14张)/i.test(prompt)) return 14;
+  if (/(fifteen|十五张|15张)/i.test(prompt)) return 15;
+  return undefined;
+}
+
 function normalizeSizeToken(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
@@ -469,19 +509,65 @@ function normalizeSizeToken(value: string) {
   return undefined;
 }
 
+function normalizeSizeTokenV2(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/：/g, ':')
+    .replace(/比/g, ':')
+    .replace(/\s+/g, ' ');
+
+  const kMatch = normalized.match(/\b([1-4])\s*k\b/i);
+  if (kMatch?.[1]) {
+    const kMap: Record<string, string> = {
+      '1': '1024x1024',
+      '2': '2048x2048',
+      '3': '3072x3072',
+      '4': '4096x4096',
+    };
+    return kMap[kMatch[1]] || undefined;
+  }
+
+  const pixelMatch = normalized.match(/(\d{2,5})\s*[x×脳*]\s*(\d{2,5})/i);
+  if (pixelMatch?.[1] && pixelMatch[2]) {
+    return `${pixelMatch[1]}x${pixelMatch[2]}`;
+  }
+
+  const ratioDirect = normalized.match(/\b(1:1|4:3|3:4|4:5|5:4|3:2|2:3|16:9|9:16|21:9|9:21)\b/i);
+  if (ratioDirect?.[1]) {
+    return SIZE_RATIO_MAP[ratioDirect[1].toLowerCase()];
+  }
+
+  const ratioMatch = normalized.match(/\b(\d{1,2})\s*:\s*(\d{1,2})\b/i);
+  if (ratioMatch?.[1] && ratioMatch[2]) {
+    const key = `${ratioMatch[1]}:${ratioMatch[2]}`;
+    if (SIZE_RATIO_MAP[key]) return SIZE_RATIO_MAP[key];
+  }
+
+  if (/\b1080p\b/i.test(normalized)) return '1920x1080';
+  if (/\b720p\b/i.test(normalized)) return '1280x720';
+  if (/(square|正方形|方图)/i.test(normalized)) return SIZE_RATIO_MAP['1:1'];
+  if (/(portrait|竖版|竖图)/i.test(normalized)) return SIZE_RATIO_MAP['3:4'];
+  if (/(landscape|横版|横图)/i.test(normalized)) return SIZE_RATIO_MAP['4:3'];
+
+  return undefined;
+}
+
 function parseExplicitSize(prompt: string, sizeHint?: string) {
   if (typeof sizeHint === 'string' && sizeHint.trim()) {
-    const normalizedFromHint = normalizeSizeToken(sizeHint);
+    const normalizedFromHint = normalizeSizeTokenV2(sizeHint);
     if (normalizedFromHint) return normalizedFromHint;
   }
-  return normalizeSizeToken(prompt);
+  return normalizeSizeTokenV2(prompt);
 }
 
 function resolveImageGenerationIntent(
   prompt: string,
   options?: { outputCount?: number; sizeHint?: string }
 ): ImageGenerationIntent {
-  const promptOutputCount = parseOutputCountFromPrompt(prompt);
+  const promptOutputCount = parseOutputCountFromPromptV2(prompt);
   const requestedOutputCount = parseOutputCountFromUnknown(options?.outputCount);
   const explicitSize = parseExplicitSize(prompt, options?.sizeHint);
   const groupedByPrompt = hasGroupOutputIntent(prompt);

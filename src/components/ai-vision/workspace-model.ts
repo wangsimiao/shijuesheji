@@ -36,6 +36,9 @@ export type WorkspaceSnapshot = {
   currentSessionId: string;
   view: ViewState;
   selectedImageModel: string;
+  activeSizeId: string | null;
+  activeBrandSpecId: string | null;
+  activeBrandTemplateId: string | null;
   sceneBySessionId: Record<string, SceneTab>;
 };
 
@@ -449,6 +452,9 @@ export function createDefaultWorkspaceSnapshot(name = DEFAULT_BOARD_NAME): Works
     currentSessionId: session.id,
     view: { ...DEFAULT_VIEW },
     selectedImageModel: DEFAULT_IMAGE_MODEL_OPTION.value,
+    activeSizeId: null,
+    activeBrandSpecId: null,
+    activeBrandTemplateId: null,
     sceneBySessionId: { [session.id]: DEFAULT_SCENE_TAB },
   };
 }
@@ -501,6 +507,9 @@ export function parseLegacyWorkspaceSnapshot(raw: string | null | undefined): Wo
       currentSessionId,
       view: normalizeView(parsed.view),
       selectedImageModel: normalizeImageModel(parsed.selectedImageModel),
+      activeSizeId: parsed.activeSizeId || null,
+      activeBrandSpecId: parsed.activeBrandSpecId || null,
+      activeBrandTemplateId: parsed.activeBrandTemplateId || null,
       sceneBySessionId: getDefaultSceneBySessionId(
         sessions,
         parsed.sceneBySessionId && typeof parsed.sceneBySessionId === 'object'
@@ -531,6 +540,9 @@ export function createWorkspaceSnapshotFromProject(project: Project): WorkspaceS
     currentSessionId,
     view: normalizeView(project.view),
     selectedImageModel: normalizeImageModel(project.selectedImageModel),
+    activeSizeId: project.activeSizeId || null,
+    activeBrandSpecId: project.activeBrandSpecId || null,
+    activeBrandTemplateId: project.activeBrandTemplateId || null,
     sceneBySessionId: getDefaultSceneBySessionId(sessions, project.sceneBySessionId),
   };
 }
@@ -544,6 +556,9 @@ export function buildProjectFromWorkspace(project: Project, snapshot: WorkspaceS
     currentSessionId: snapshot.currentSessionId,
     view: snapshot.view,
     selectedImageModel: snapshot.selectedImageModel,
+    activeSizeId: snapshot.activeSizeId,
+    activeBrandSpecId: snapshot.activeBrandSpecId,
+    activeBrandTemplateId: snapshot.activeBrandTemplateId,
     sceneBySessionId: snapshot.sceneBySessionId,
     updatedAt: Date.now(),
   };

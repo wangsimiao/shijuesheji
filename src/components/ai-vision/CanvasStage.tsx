@@ -416,9 +416,10 @@ export default function CanvasStage({
                       <img
                         src={item.content}
                         alt={item.prompt || 'canvas item'}
-                        className="absolute select-none object-cover"
+                        className="absolute select-none object-cover transition-opacity duration-300"
                         style={imageStyle || undefined}
                         draggable={false}
+                        loading="lazy"
                       />
                       {cropState?.itemId === item.id ? (
                         <CropOverlay

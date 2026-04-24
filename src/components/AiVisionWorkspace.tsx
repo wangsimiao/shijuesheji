@@ -15,6 +15,7 @@ import {
   generateImageAI,
   getResolvedImageModelConfigurationMessage,
   isImageModelConfigured,
+  GROUP_OUTPUT_MAX_COUNT,
 } from '../services/ai';
 import type {
   BrandSpec,
@@ -326,8 +327,8 @@ export default function AiVisionWorkspace({
   const [chatInputImages, setChatInputImages] = useState<ChatInputImage[]>([]);
   const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
   const [brandSpecs, setBrandSpecs] = useState<BrandSpec[]>([]);
-  const [activeBrandSpecId, setActiveBrandSpecId] = useState<string | null>(null);
-  const [activeBrandTemplateId, setActiveBrandTemplateId] = useState<string | null>(null);
+  const [activeBrandSpecId, setActiveBrandSpecId] = useState<string | null>(initialSnapshot.activeBrandSpecId || null);
+  const [activeBrandTemplateId, setActiveBrandTemplateId] = useState<string | null>(initialSnapshot.activeBrandTemplateId || null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [sceneBySessionId, setSceneBySessionId] = useState<Record<string, SceneTab>>(
     initialSnapshot.sceneBySessionId
@@ -341,6 +342,8 @@ export default function AiVisionWorkspace({
   const [isBrandSpecMenuOpen, setIsBrandSpecMenuOpen] = useState(false);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
+  const [isSizeConfigMenuOpen, setIsSizeConfigMenuOpen] = useState(false);
+  const [activeSizeId, setActiveSizeId] = useState<string | null>(initialSnapshot.activeSizeId || null);
   const [canvasHover, setCanvasHover] = useState(false);
   const [canvasWheelLock, setCanvasWheelLock] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
@@ -361,6 +364,7 @@ export default function AiVisionWorkspace({
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
   const brandSpecMenuRef = useRef<HTMLDivElement | null>(null);
   const brandMenuRef = useRef<HTMLDivElement | null>(null);
+  const sizeConfigMenuRef = useRef<HTMLDivElement | null>(null);
   const hasManualBoardNameEditRef = useRef(false);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
@@ -910,6 +914,9 @@ export default function AiVisionWorkspace({
         currentSessionId,
         view,
         selectedImageModel,
+        activeSizeId,
+        activeBrandSpecId,
+        activeBrandTemplateId,
         sceneBySessionId,
       })
     )
@@ -1947,7 +1954,7 @@ export default function AiVisionWorkspace({
           if (call.name !== 'generateImage') continue;
 
           const prompt = call.args.prompt.trim();
-          const expectedOutputCount = Math.max(1, Math.min(4, Math.round(call.args.outputCount || 1)));
+          const expectedOutputCount = Math.max(1, Math.min(GROUP_OUTPUT_MAX_COUNT, Math.round(call.args.outputCount || 1)));
           const imageLoadingMessageId = uuidv4();
           const loadingItemIds = createLoadingItems(prompt || '正在生成图片...', expectedOutputCount);
           updateCurrentSessionMessages(currentSession.id, (previous) => [
@@ -1962,6 +1969,7 @@ export default function AiVisionWorkspace({
           ]);
 
           try {
+            const effectiveSizeHint = activeSizeId || call.args.sizeHint;
             const imageResult = await generateImageAI(
               prompt,
               selectedImageModel,
@@ -1969,7 +1977,7 @@ export default function AiVisionWorkspace({
               {
                 systemPrompt: activeBrandSystemPrompt,
                 outputCount: expectedOutputCount,
-                sizeHint: call.args.sizeHint,
+                sizeHint: effectiveSizeHint,
               }
             );
             const generatedUrls = imageResult.images;
@@ -2440,6 +2448,18 @@ export default function AiVisionWorkspace({
         }}
         onUploadReferenceImage={handleUploadReferenceImage}
         onSendMessage={handleSendMessage}
+        sizeConfigMenuRef={sizeConfigMenuRef}
+        activeSizeId={activeSizeId}
+        isSizeConfigMenuOpen={isSizeConfigMenuOpen}
+        onToggleSizeConfigMenu={() => {
+          setIsBrandMenuOpen(false);
+          setIsBrandSpecMenuOpen(false);
+          setIsSizeConfigMenuOpen((previous) => !previous);
+        }}
+        onSelectSize={(sizeId) => {
+          setActiveSizeId(sizeId);
+          setIsSizeConfigMenuOpen(false);
+        }}
       />
 
       <input

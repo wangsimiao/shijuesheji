@@ -134,6 +134,9 @@ export interface Project {
   currentSessionId?: string;
   view: ViewState;
   selectedImageModel?: string;
+  activeSizeId?: string | null;
+  activeBrandSpecId?: string | null;
+  activeBrandTemplateId?: string | null;
   sceneBySessionId?: Record<string, AiVisionSceneTab>;
   updatedAt: number;
   creatorId?: string;
