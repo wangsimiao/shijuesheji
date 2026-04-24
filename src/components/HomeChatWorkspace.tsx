@@ -194,7 +194,6 @@ export default function HomeChatWorkspace({ onNavigate }: HomeChatWorkspaceProps
           </div>
 
           <form onSubmit={handleSubmit} className="relative isolate overflow-hidden border-t border-white/10 px-4 py-4">
-            <div className="home-chat-line-sweep pointer-events-none absolute left-0 right-0 top-1/2 z-0 h-px -translate-y-1/2" />
             <div className="relative z-10 mx-auto w-full max-w-4xl">
               <div className="mb-3 flex flex-wrap gap-2">
                 {SCENE_OPTIONS.map((option) => (
