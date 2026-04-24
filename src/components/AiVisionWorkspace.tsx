@@ -18,6 +18,7 @@ import {
   GROUP_OUTPUT_MAX_COUNT,
 } from '../services/ai';
 import type {
+  AiVisionLaunchIntent,
   BrandSpec,
   BrandTemplate,
   CanvasCrop,
@@ -95,6 +96,8 @@ interface AiVisionWorkspaceProps {
   project: Project;
   onBack: () => void;
   onOpenProject: (project: Project) => void;
+  launchIntent?: AiVisionLaunchIntent | null;
+  onConsumeLaunchIntent?: () => void;
 }
 
 const WHEEL_PAN_SENSITIVITY = 0.9;
@@ -370,6 +373,8 @@ export default function AiVisionWorkspace({
   project,
   onBack,
   onOpenProject,
+  launchIntent = null,
+  onConsumeLaunchIntent,
 }: AiVisionWorkspaceProps) {
   const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
 
@@ -457,6 +462,7 @@ export default function AiVisionWorkspace({
   const viewportSizeRef = useRef(viewportSize);
   const chatInputImagesRef = useRef(chatInputImages);
   const copiedItemsRef = useRef<CanvasItem[] | null>(null);
+  const consumedLaunchIntentNonceRef = useRef<string | null>(null);
 
   function clearTouchGestureState() {
     if (isDirectViewInteractionRef.current) {
@@ -1229,6 +1235,49 @@ export default function AiVisionWorkspace({
   const selectedImageModelConfigurationMessage = getResolvedImageModelConfigurationMessage(
     effectiveSelectedImageModel
   );
+
+  useEffect(() => {
+    if (!launchIntent) return;
+    if (launchIntent.targetProjectId !== project.id) return;
+    if (!currentSession) return;
+    if (consumedLaunchIntentNonceRef.current === launchIntent.nonce) return;
+
+    consumedLaunchIntentNonceRef.current = launchIntent.nonce;
+
+    const normalizedPrompt = (launchIntent.prompt || '').trim();
+    const normalizedImages = Array.isArray(launchIntent.attachedImages)
+      ? launchIntent.attachedImages.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    const attachedImages = normalizedImages.slice(0, CHAT_IMAGE_LIMIT);
+    const launchSystemPrompt = launchIntent.systemPrompt?.trim() || undefined;
+
+    if (launchIntent.selectedImageModel) {
+      setSelectedImageModel(launchIntent.selectedImageModel);
+    }
+    if (typeof launchIntent.activeBrandSpecId !== 'undefined') {
+      setActiveBrandSpecId(launchIntent.activeBrandSpecId || null);
+    }
+    if (typeof launchIntent.activeSizeId !== 'undefined') {
+      setActiveSizeId(launchIntent.activeSizeId || null);
+    }
+    setChatInput('');
+    setChatInputImages([]);
+    onConsumeLaunchIntent?.();
+
+    if (!normalizedPrompt && attachedImages.length === 0) return;
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        void handleSendMessage({
+          prompt: normalizedPrompt,
+          attachedImages,
+          selectedModel: launchIntent.selectedImageModel || selectedImageModel,
+          sizeHint: launchIntent.activeSizeId || undefined,
+          systemPrompt: launchSystemPrompt,
+        });
+      });
+    });
+  }, [currentSession, launchIntent, onConsumeLaunchIntent, project.id, selectedImageModel]);
 
   const selectedItemId = view.selectedItemIds[0] || null;
   const selectedItem = selectedItemId
@@ -2291,13 +2340,22 @@ export default function AiVisionWorkspace({
     }
   }
 
-  async function handleSendMessage() {
+  async function handleSendMessage(payload?: {
+    prompt?: string;
+    attachedImages?: string[];
+    selectedModel?: string;
+    sizeHint?: string;
+    systemPrompt?: string;
+  }) {
     if (isChatLoading || !currentSession) return;
 
-    const text = chatInput.trim();
-    const attachedImages = chatInputImages.map((item) => item.data);
+    const text = (payload?.prompt ?? chatInput).trim();
+    const attachedImages = payload?.attachedImages ?? chatInputImages.map((item) => item.data);
     const requestReferenceImages = Array.from(new Set([...attachedImages, ...hiddenTemplateReferences]));
     if (!text && attachedImages.length === 0) return;
+    const modelForRequest = payload?.selectedModel || selectedImageModel;
+    const systemPromptForRequest = payload?.systemPrompt ?? activeBrandSystemPrompt;
+    const preferredSizeHint = payload?.sizeHint || activeSizeId || undefined;
 
     const effectiveText = text || '请基于这些参考图继续创作。';
     const effectiveTextForModel = effectiveText;
@@ -2339,10 +2397,10 @@ export default function AiVisionWorkspace({
       }));
 
       const response = await chatWithAI(history, effectiveTextForModel, requestReferenceImages, {
-        systemPrompt: activeBrandSystemPrompt,
+        systemPrompt: systemPromptForRequest,
         forceImageGeneration:
-          (selectedImageModel || '').trim() === OPENROUTER_GPT_IMAGE_MODEL ||
-          (selectedImageModel || '').trim().toLowerCase() === 'gpt2',
+          (modelForRequest || '').trim() === OPENROUTER_GPT_IMAGE_MODEL ||
+          (modelForRequest || '').trim().toLowerCase() === 'gpt2',
       });
       let nextAssistantMessages: ChatMessage[] | null = null;
 
@@ -2384,15 +2442,15 @@ export default function AiVisionWorkspace({
           ]);
 
           try {
-            const effectiveSizeHint = activeSizeId || call.args.sizeHint;
+            const effectiveSizeHint = preferredSizeHint || call.args.sizeHint;
             const referenceImages = call.args.referenceImages || attachedImages;
 
             const imageResult = await generateImageAI(
               prompt,
-              selectedImageModel,
+              modelForRequest,
               [...referenceImages, ...hiddenTemplateReferences],
               {
-                systemPrompt: activeBrandSystemPrompt,
+                systemPrompt: systemPromptForRequest,
                 outputCount: expectedOutputCount,
                 sizeHint: effectiveSizeHint,
               }

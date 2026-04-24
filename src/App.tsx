@@ -8,7 +8,7 @@ import {
   getProject,
   migrateLegacyAiVisualSnapshotToProject,
 } from './store';
-import { AppRoute, Project } from './types';
+import { AiVisionLaunchIntent, AppRoute, Project } from './types';
 
 const DEFAULT_PROJECT_NAME = 'AI 设计画布';
 
@@ -95,6 +95,7 @@ export default function App() {
   const [routeProjectId, setRouteProjectId] = useState<string | null>(initialLocation.projectId);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [pendingLaunchIntent, setPendingLaunchIntent] = useState<AiVisionLaunchIntent | null>(null);
   const [isProjectLoading, setIsProjectLoading] = useState(false);
 
   const navigateToRoute = (route: AppRoute, projectId: string | null = null, replace = false) => {
@@ -170,9 +171,10 @@ export default function App() {
     };
   }, [activeProjectId, currentRoute, routeProjectId]);
 
-  const openProject = (project: Project) => {
+  const openProject = (project: Project, launchIntent?: AiVisionLaunchIntent) => {
     setActiveProjectId(project.id);
     setActiveProject(project);
+    setPendingLaunchIntent(launchIntent || null);
     navigateToRoute('ai_visual', project.id);
   };
 
@@ -185,6 +187,10 @@ export default function App() {
               project={activeProject}
               onBack={() => navigateToRoute('design')}
               onOpenProject={openProject}
+              launchIntent={
+                pendingLaunchIntent?.targetProjectId === activeProject.id ? pendingLaunchIntent : null
+              }
+              onConsumeLaunchIntent={() => setPendingLaunchIntent(null)}
             />
           </React.Fragment>
         ) : (

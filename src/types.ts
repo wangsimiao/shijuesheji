@@ -52,6 +52,18 @@ export interface ChatInputImage {
   name?: string;
 }
 
+export interface AiVisionLaunchIntent {
+  nonce: string;
+  targetProjectId: string;
+  prompt: string;
+  attachedImages: string[];
+  selectedImageModel?: string;
+  activeBrandSpecId?: string | null;
+  activeSizeId?: string | null;
+  systemPrompt?: string;
+  createdAt: number;
+}
+
 export interface ChatSession {
   id: string;
   title: string;

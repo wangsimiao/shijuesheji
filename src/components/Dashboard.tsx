@@ -1,26 +1,38 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
+  Loader2,
   MoreHorizontal,
   Plus,
+  Ruler,
+  Send,
   Settings2,
   Trash2,
   Video,
 } from 'lucide-react';
 import HomeChatWorkspace from './HomeChatWorkspace';
-import { AppRoute, Project } from '../types';
+import { AiVisionLaunchIntent, AppRoute, BrandSpec, ChatInputImage, Project } from '../types';
 import {
   createNewProject,
   deleteProject,
+  getBrandSpecs,
+  getModelSettings,
   getProjects,
 } from '../store';
+import {
+  CHAT_IMAGE_LIMIT,
+  IMAGE_MODEL_OPTIONS,
+  normalizeImageModel,
+  readFileAsDataUrl,
+} from './ai-vision/workspace-model';
 
 interface DashboardProps {
   currentRoute: AppRoute;
   onNavigate: (route: AppRoute) => void;
-  onOpenProject: (project: Project) => void;
+  onOpenProject: (project: Project, launchIntent?: AiVisionLaunchIntent) => void;
 }
 
 const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
@@ -28,6 +40,19 @@ const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
 ];
 
 const PROJECTS_PER_PAGE = 11;
+const HOME_IMAGE_SIZE_OPTIONS = [
+  { label: '1:1', value: '1:1', pixels: '2048x2048' },
+  { label: '4:3', value: '4:3', pixels: '2400x1800' },
+  { label: '3:4', value: '3:4', pixels: '1800x2400' },
+  { label: '4:5', value: '4:5', pixels: '1920x2400' },
+  { label: '5:4', value: '5:4', pixels: '2400x1920' },
+  { label: '3:2', value: '3:2', pixels: '2400x1600' },
+  { label: '2:3', value: '2:3', pixels: '1600x2400' },
+  { label: '16:9', value: '16:9', pixels: '2560x1440' },
+  { label: '9:16', value: '9:16', pixels: '1440x2560' },
+  { label: '21:9', value: '21:9', pixels: '2960x1269' },
+  { label: '9:21', value: '9:21', pixels: '1269x2960' },
+];
 
 type ProjectPreviewMedia =
   | { type: 'image'; src: string }
@@ -47,12 +72,6 @@ function DesignProjectsLoading() {
 
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-      <div className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col rounded-[20px] border border-white/[0.08] bg-[#161a24] p-4 shadow-[0_16px_34px_rgba(0,0,0,0.24)]">
-        <div className="flex flex-1 items-center justify-center rounded-[14px] bg-[#0d111a]">
-          <div className="ai-loader-shimmer h-12 w-12 rounded-[14px] border border-white/10 bg-[linear-gradient(90deg,rgba(148,163,184,0.08)_0%,rgba(255,255,255,0.26)_50%,rgba(148,163,184,0.08)_100%)]" />
-        </div>
-      </div>
-
       {skeletonCards.map((_, index) => (
         <article
           key={`project-loading-${index}`}
@@ -68,6 +87,20 @@ function DesignProjectsLoading() {
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+function getDisplayModelLabel(value: string, fallbackLabel: string) {
+  if (value === 'openai/gpt-5.4-image-2') return 'gpt2';
+  if (value === 'doubao-seedream-5-0-260128') return '豆包 5.0';
+  return fallbackLabel;
+}
+
+function HomeMenuPanel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-[22px] border border-white/[0.05] bg-[#1b1e25]/98 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+      {children}
     </div>
   );
 }
@@ -181,6 +214,22 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   const [activeProjectMenuId, setActiveProjectMenuId] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [launchPrompt, setLaunchPrompt] = useState('');
+  const [launchImages, setLaunchImages] = useState<ChatInputImage[]>([]);
+  const [launchModel, setLaunchModel] = useState(() =>
+    normalizeImageModel(getModelSettings().defaultAiVisionImageModel)
+  );
+  const [launchBrandSpecs, setLaunchBrandSpecs] = useState<BrandSpec[]>([]);
+  const [launchBrandSpecId, setLaunchBrandSpecId] = useState('');
+  const [launchSizeId, setLaunchSizeId] = useState('');
+  const [isLaunchModelMenuOpen, setIsLaunchModelMenuOpen] = useState(false);
+  const [isLaunchBrandSpecMenuOpen, setIsLaunchBrandSpecMenuOpen] = useState(false);
+  const [isLaunchSizeMenuOpen, setIsLaunchSizeMenuOpen] = useState(false);
+  const [isLaunchingProject, setIsLaunchingProject] = useState(false);
+  const launchUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const launchModelMenuRef = useRef<HTMLDivElement | null>(null);
+  const launchBrandSpecMenuRef = useRef<HTMLDivElement | null>(null);
+  const launchSizeMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (currentRoute !== 'design') return;
@@ -209,6 +258,15 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   }, [currentRoute, refreshToken]);
 
   useEffect(() => {
+    if (currentRoute !== 'design') return;
+    const nextSpecs = getBrandSpecs();
+    setLaunchBrandSpecs(nextSpecs);
+    setLaunchBrandSpecId((previous) =>
+      nextSpecs.some((item) => item.id === previous) ? previous : ''
+    );
+  }, [currentRoute, refreshToken]);
+
+  useEffect(() => {
     if (!activeProjectMenuId) return;
 
     const handleWindowPointerDown = (event: PointerEvent) => {
@@ -221,6 +279,23 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     window.addEventListener('pointerdown', handleWindowPointerDown);
     return () => window.removeEventListener('pointerdown', handleWindowPointerDown);
   }, [activeProjectMenuId]);
+
+  useEffect(() => {
+    if (!isLaunchModelMenuOpen && !isLaunchBrandSpecMenuOpen && !isLaunchSizeMenuOpen) return;
+
+    const handleWindowPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (launchModelMenuRef.current && target && launchModelMenuRef.current.contains(target)) return;
+      if (launchBrandSpecMenuRef.current && target && launchBrandSpecMenuRef.current.contains(target)) return;
+      if (launchSizeMenuRef.current && target && launchSizeMenuRef.current.contains(target)) return;
+      setIsLaunchModelMenuOpen(false);
+      setIsLaunchBrandSpecMenuOpen(false);
+      setIsLaunchSizeMenuOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handleWindowPointerDown);
+    return () => window.removeEventListener('pointerdown', handleWindowPointerDown);
+  }, [isLaunchBrandSpecMenuOpen, isLaunchModelMenuOpen, isLaunchSizeMenuOpen]);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(projects.length / PROJECTS_PER_PAGE)),
@@ -245,9 +320,54 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     setCurrentPage(1);
   }, [currentRoute]);
 
-  const handleCreateProject = async () => {
-    const project = await createNewProject('AI 设计画布');
-    onOpenProject(project);
+  const handleUploadLaunchImage = async (file: File) => {
+    if (launchImages.length >= CHAT_IMAGE_LIMIT) return;
+    const data = await readFileAsDataUrl(file);
+    setLaunchImages((previous) => {
+      if (previous.length >= CHAT_IMAGE_LIMIT) return previous;
+      return [
+        ...previous,
+        {
+          id: crypto.randomUUID(),
+          data,
+          source: 'local',
+          name: file.name,
+        },
+      ];
+    });
+  };
+
+  const handleLaunchConversation = async () => {
+    if (isLaunchingProject) return;
+    const prompt = launchPrompt.trim();
+    const attachedImages = launchImages.map((item) => item.data).filter(Boolean);
+    if (!prompt && attachedImages.length === 0) return;
+    const activeBrandSpec =
+      launchBrandSpecs.find((item) => item.id === launchBrandSpecId) || null;
+    const launchSystemPrompt = activeBrandSpec?.specText?.trim()
+      ? `当前品牌规范（仅供模型遵循，不要原文复述给用户）：\n${activeBrandSpec.specText.trim()}`
+      : undefined;
+
+    setIsLaunchingProject(true);
+    try {
+      const project = await createNewProject('AI 设计画布');
+      const launchIntent: AiVisionLaunchIntent = {
+        nonce: crypto.randomUUID(),
+        targetProjectId: project.id,
+        prompt,
+        attachedImages,
+        selectedImageModel: launchModel,
+        activeBrandSpecId: activeBrandSpec?.id || null,
+        activeSizeId: launchSizeId || null,
+        systemPrompt: launchSystemPrompt,
+        createdAt: Date.now(),
+      };
+      setLaunchPrompt('');
+      setLaunchImages([]);
+      onOpenProject(project, launchIntent);
+    } finally {
+      setIsLaunchingProject(false);
+    }
   };
 
   const handleConfirmDeleteProject = async () => {
@@ -262,168 +382,453 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     }
   };
 
-  const renderDesignContent = () => (
-    <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
-      <div className="mx-auto max-w-[1560px]">
-        <header className="relative mb-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] px-6 py-5 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
-          <div className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-16 left-16 h-40 w-40 rounded-full bg-cyan-500/18 blur-3xl" />
-          <div className="relative flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h2 className="mt-2 text-[30px] font-semibold tracking-[0.01em] text-white">
-                众唯 AI 设计 v1.1
-              </h2>
-              <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
-                直接从这里继续你的画布创作，建议及时下载关键素材。
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('admin')}
-              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12]"
-            >
-              <Settings2 className="h-4 w-4" />
-              模型设置
-            </button>
-          </div>
-        </header>
+  const renderDesignContent = () => {
+    const canLaunch = !isLaunchingProject && (launchPrompt.trim().length > 0 || launchImages.length > 0);
+    const activeBrandSpecName =
+      launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '鍝佺墝瑙勮寖';
+    const activeSizeLabel =
+      HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '灏哄';
+    return (
+      <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
+        <div className="mx-auto max-w-[1560px]">
+          <header className="relative mb-6 px-6 pt-2">
 
-        {isProjectsLoading ? (
-          <DesignProjectsLoading />
-        ) : (
-          <div className="space-y-5">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-            <button
-              type="button"
-              onClick={() => {
-                void handleCreateProject();
-              }}
-              className="group flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col rounded-[20px] border border-white/[0.08] bg-[#161a24] p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1b2030]"
-            >
-              <div className="flex flex-1 items-center justify-center rounded-[14px] bg-[#0d111a] text-slate-400 transition group-hover:text-slate-100">
-                <div className="flex flex-col items-center gap-3">
-                  <Plus className="h-10 w-10 stroke-[1.6]" />
-                  <div className="text-[18px] font-semibold text-slate-200">新的画布</div>
-                </div>
+            <div className="relative">
+              <div className="mx-auto -mt-1 max-w-[860px] text-center">
+                <h2 className="relative mt-1 text-[22px] font-semibold tracking-[0.01em] text-transparent md:text-[24px]" aria-label="众唯 AI 设计">
+                  <span className="pointer-events-none absolute inset-0 text-white">众唯 AI 设计</span>
+                  众唯 AI 设计
+                </h2>
+                <p className="mx-auto mt-2 max-w-[820px] text-[13px] leading-6 text-slate-300">
+                  顶部对话框直接发起创作，发送后会创建全新画布并自动进入项目。
+                </p>
               </div>
-            </button>
-
-            {paginatedProjects.map((project) => (
-              <article
-                key={project.id}
-                className="group relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1a1f2d]"
+              <button
+                type="button"
+                onClick={() => onNavigate('admin')}
+                className="mt-3 inline-flex h-10 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12] md:absolute md:right-0 md:top-0 md:mt-0"
               >
-                <button
-                  type="button"
-                  onClick={() => onOpenProject(project)}
-                  className="flex min-h-0 flex-1 flex-col text-left"
-                >
-                  <div className="aspect-[1.44] overflow-hidden rounded-[14px] border border-white/[0.05] bg-[#101116]">
-                    <ProjectPreview project={project} />
-                  </div>
+                <Settings2 className="h-4 w-4" />
+                模型设置
+              </button>
+            </div>
 
-                  <div className="min-h-0 flex-1 px-1 pt-3">
-                    <h3 className="line-clamp-2 text-[14px] font-semibold leading-6 text-white">
-                      {project.name || '未命名画布'}
-                    </h3>
-                  </div>
-                </button>
+            <div className="relative mt-3 flex justify-center">
+              <div className="w-full max-w-[860px] rounded-[24px] border border-white/[0.08] bg-[#171b22]/92 p-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+                <div className="mb-1.5 flex items-center gap-1.5 overflow-x-auto px-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {launchImages.map((item) => (
+                    <div key={item.id} className="group relative h-10 w-10 shrink-0">
+                      <img
+                        src={item.data}
+                        alt={item.name || '参考图'}
+                        className="h-full w-full rounded-[12px] object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLaunchImages((previous) =>
+                            previous.filter((current) => current.id !== item.id)
+                          )
+                        }
+                        className="absolute -right-1 -top-1 inline-flex h-4.5 w-4.5 items-center justify-center rounded-full bg-black/75 text-white opacity-0 transition group-hover:opacity-100 hover:bg-black/90"
+                        aria-label="移除参考图"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={launchImages.length >= CHAT_IMAGE_LIMIT || isLaunchingProject}
+                    onClick={() => launchUploadInputRef.current?.click()}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-white/[0.08] text-slate-200 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-45"
+                    title="上传参考图"
+                  >
+                    <Plus className="h-4.5 w-4.5" />
+                  </button>
+                </div>
 
-                <div className="mt-1 flex items-center justify-between gap-2 px-1">
-                  <div className="truncate text-[11px] tracking-[0.01em] text-slate-400">
-                    {formatProjectTimestamp(project.updatedAt)}
-                  </div>
+                <textarea
+                  value={launchPrompt}
+                  onChange={(event) => setLaunchPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      void handleLaunchConversation();
+                    }
+                  }}
+                  onPaste={(event) => {
+                    const items = event.clipboardData?.items;
+                    if (!items) return;
+                    for (let index = 0; index < items.length; index += 1) {
+                      const item = items[index];
+                      if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        const file = item.getAsFile();
+                        if (!file) continue;
+                        event.preventDefault();
+                        void handleUploadLaunchImage(file);
+                        break;
+                      }
+                    }
+                  }}
+                  rows={2}
+                  placeholder="描述你希望生成或修改的内容..."
+                  className="min-h-[66px] w-full resize-none bg-transparent px-1.5 py-1 text-[13px] leading-5 text-white outline-none placeholder:text-slate-500"
+                />
 
-                  <div data-project-menu="true" className="relative shrink-0">
+                <div className="mt-2 flex items-center gap-1.5 px-0.5">
+                  <div ref={launchModelMenuRef} className="relative">
                     <button
                       type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setActiveProjectMenuId((current) => (current === project.id ? null : project.id));
+                      onClick={() => {
+                        setIsLaunchBrandSpecMenuOpen(false);
+                        setIsLaunchSizeMenuOpen(false);
+                        setIsLaunchModelMenuOpen((previous) => !previous);
                       }}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
-                      aria-label="项目菜单"
+                      className="inline-flex h-9 min-w-[92px] items-center justify-between gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-2.5 text-[12px] text-white transition hover:bg-[#1a1f28]"
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      {getDisplayModelLabel(
+                        launchModel,
+                        IMAGE_MODEL_OPTIONS.find((option) => option.value === launchModel)?.label || '妯″瀷'
+                      )}
+                      <ChevronDown className={`h-3 w-3 transition ${isLaunchModelMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
-
-                    {activeProjectMenuId === project.id ? (
-                      <div className="absolute bottom-full right-0 z-20 mb-2 min-w-[138px] rounded-[16px] border border-white/[0.08] bg-[#161922] p-1.5 shadow-[0_18px_40px_rgba(0,0,0,0.42)]">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setActiveProjectMenuId(null);
-                            onOpenProject(project);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-slate-200 transition hover:bg-white/[0.06]"
-                        >
-                          <ImageIcon className="h-4 w-4" />
-                          打开项目
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setActiveProjectMenuId(null);
-                            setProjectToDelete(project);
-                          }}
-                          className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-rose-200 transition hover:bg-rose-500/10"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          删除项目
-                        </button>
+                    {isLaunchModelMenuOpen ? (
+                      <div className="absolute bottom-full left-0 z-40 mb-2 w-[172px]">
+                        <HomeMenuPanel>
+                          <div className="space-y-1">
+                            {IMAGE_MODEL_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => {
+                                  setLaunchModel(option.value);
+                                  setIsLaunchModelMenuOpen(false);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-[12px] px-3 py-2 text-[12px] transition ${
+                                  option.value === launchModel
+                                    ? 'bg-cyan-500/15 text-cyan-100'
+                                    : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
+                                }`}
+                              >
+                                {getDisplayModelLabel(option.value, option.label)}
+                              </button>
+                            ))}
+                          </div>
+                        </HomeMenuPanel>
                       </div>
                     ) : null}
                   </div>
-                </div>
-              </article>
-            ))}
-            </div>
 
-            {totalPages > 1 ? (
-              <div className="flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                  disabled={currentPage === 1}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-45"
-                  aria-label="上一页"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
+                  <div ref={launchBrandSpecMenuRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLaunchModelMenuOpen(false);
+                        setIsLaunchSizeMenuOpen(false);
+                        setIsLaunchBrandSpecMenuOpen((previous) => !previous);
+                      }}
+                      className={`inline-flex h-9 items-center gap-1 rounded-[12px] border px-3 text-[12px] transition ${
+                        launchBrandSpecId
+                          ? 'border-cyan-300/45 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15'
+                          : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
+                      }`}
+                    >
+                      {activeBrandSpecName}
+                      <ChevronDown className={`h-3 w-3 transition ${isLaunchBrandSpecMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isLaunchBrandSpecMenuOpen ? (
+                      <div className="absolute bottom-full left-0 z-40 mb-2 w-[220px]">
+                        <HomeMenuPanel>
+                          <div className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLaunchBrandSpecId('');
+                                setIsLaunchBrandSpecMenuOpen(false);
+                              }}
+                              className={`flex w-full items-center justify-between rounded-[12px] px-3 py-2 text-[12px] transition ${
+                                !launchBrandSpecId
+                                  ? 'bg-cyan-500/15 text-cyan-100'
+                                  : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
+                              }`}
+                            >
+                              品牌规范
+                            </button>
+                            {launchBrandSpecs.map((spec) => (
+                              <button
+                                key={spec.id}
+                                type="button"
+                                onClick={() => {
+                                  setLaunchBrandSpecId(spec.id);
+                                  setIsLaunchBrandSpecMenuOpen(false);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-[12px] px-3 py-2 text-[12px] transition ${
+                                  launchBrandSpecId === spec.id
+                                    ? 'bg-cyan-500/15 text-cyan-100'
+                                    : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
+                                }`}
+                              >
+                                {spec.brandName}
+                              </button>
+                            ))}
+                          </div>
+                        </HomeMenuPanel>
+                      </div>
+                    ) : null}
+                  </div>
 
-                {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
-                  <button
-                    key={`dashboard-page-${pageNumber}`}
-                    type="button"
-                    onClick={() => setCurrentPage(pageNumber)}
-                    className={`min-w-[38px] rounded-[10px] px-3 py-1.5 text-sm transition ${
-                      pageNumber === currentPage
-                        ? 'bg-sky-500/30 text-sky-100'
-                        : 'border border-white/[0.1] bg-white/[0.04] text-slate-300 hover:bg-white/[0.1]'
-                    }`}
+                  <div ref={launchSizeMenuRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLaunchModelMenuOpen(false);
+                        setIsLaunchBrandSpecMenuOpen(false);
+                        setIsLaunchSizeMenuOpen((previous) => !previous);
+                      }}
+                      className={`inline-flex h-9 items-center gap-1 rounded-[12px] border px-3 text-[12px] transition ${
+                        launchSizeId
+                          ? 'border-cyan-300/45 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15'
+                          : 'border-white/[0.04] bg-[#151920] text-slate-200 hover:bg-[#1a1f28]'
+                      }`}
+                    >
+                      <Ruler className="h-3.5 w-3.5" />
+                      {activeSizeLabel}
+                      <ChevronDown className={`h-3 w-3 transition ${isLaunchSizeMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isLaunchSizeMenuOpen ? (
+                      <div className="absolute bottom-full left-0 z-40 mb-2 w-[200px]">
+                        <HomeMenuPanel>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {HOME_IMAGE_SIZE_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => {
+                                  setLaunchSizeId(option.value);
+                                  setIsLaunchSizeMenuOpen(false);
+                                }}
+                                className={`flex flex-col items-center rounded-[10px] px-2 py-1.5 text-[11px] transition ${
+                                  launchSizeId === option.value
+                                    ? 'bg-cyan-500/15 text-cyan-100'
+                                    : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+                                }`}
+                              >
+                                <span className="font-medium">{option.label}</span>
+                                <span className="text-[9px] text-slate-500">{option.pixels}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLaunchSizeId('');
+                              setIsLaunchSizeMenuOpen(false);
+                            }}
+                            className={`mt-2 w-full rounded-[10px] px-3 py-1.5 text-[11px] transition ${
+                              !launchSizeId
+                                ? 'bg-cyan-500/15 text-cyan-100'
+                                : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+                            }`}
+                          >
+                            不指定尺寸
+                          </button>
+                        </HomeMenuPanel>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <select
+                    value={launchBrandSpecId}
+                    onChange={(event) => setLaunchBrandSpecId(event.target.value)}
+                    className="hidden"
+                    title="品牌规范"
                   >
-                    {pageNumber}
-                  </button>
-                ))}
+                    <option value="">品牌规范</option>
+                    {launchBrandSpecs.map((spec) => (
+                      <option key={spec.id} value={spec.id}>
+                        {spec.brandName}
+                      </option>
+                    ))}
+                  </select>
 
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                  disabled={currentPage === totalPages}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-45"
-                  aria-label="下一页"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+                  <select
+                    value={launchSizeId}
+                    onChange={(event) => setLaunchSizeId(event.target.value)}
+                    className="hidden"
+                    title="尺寸"
+                  >
+                    <option value="">尺寸</option>
+                    {HOME_IMAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="ml-auto">
+                    <button
+                      type="button"
+                      disabled={!canLaunch}
+                      onClick={() => {
+                        void handleLaunchConversation();
+                      }}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#33435f] text-white transition hover:bg-[#3b4d6d] disabled:cursor-not-allowed disabled:opacity-45"
+                      aria-label="发送并进入新画布"
+                    >
+                      {isLaunchingProject ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
-            ) : null}
-          </div>
-        )}
+            </div>
+          </header>
+
+          {isProjectsLoading ? (
+            <DesignProjectsLoading />
+          ) : (
+            <div className="space-y-5">
+              {paginatedProjects.length === 0 ? (
+                <div className="rounded-[20px] border border-white/[0.08] bg-[#121621] p-8 text-center">
+                  <p className="text-sm text-slate-300">还没有历史画布，直接在上方对话框发起创作就会自动创建新画布。</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+                  {paginatedProjects.map((project) => (
+                    <article
+                      key={project.id}
+                      className="group relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1a1f2d]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onOpenProject(project)}
+                        className="flex min-h-0 flex-1 flex-col text-left"
+                      >
+                        <div className="aspect-[1.44] overflow-hidden rounded-[14px] border border-white/[0.05] bg-[#101116]">
+                          <ProjectPreview project={project} />
+                        </div>
+
+                        <div className="min-h-0 flex-1 px-1 pt-3">
+                          <h3 className="line-clamp-2 text-[14px] font-semibold leading-6 text-white">
+                            {project.name || '未命名画布'}
+                          </h3>
+                        </div>
+                      </button>
+
+                      <div className="mt-1 flex items-center justify-between gap-2 px-1">
+                        <div className="truncate text-[11px] tracking-[0.01em] text-slate-400">
+                          {formatProjectTimestamp(project.updatedAt)}
+                        </div>
+
+                        <div data-project-menu="true" className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActiveProjectMenuId((current) => (current === project.id ? null : project.id));
+                            }}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                            aria-label="项目菜单"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+
+                          {activeProjectMenuId === project.id ? (
+                            <div className="absolute bottom-full right-0 z-20 mb-2 min-w-[138px] rounded-[16px] border border-white/[0.08] bg-[#161922] p-1.5 shadow-[0_18px_40px_rgba(0,0,0,0.42)]">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveProjectMenuId(null);
+                                  onOpenProject(project);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-slate-200 transition hover:bg-white/[0.06]"
+                              >
+                                <ImageIcon className="h-4 w-4" />
+                                打开项目
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveProjectMenuId(null);
+                                  setProjectToDelete(project);
+                                }}
+                                className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-rose-200 transition hover:bg-rose-500/10"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                删除项目
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              {totalPages > 1 ? (
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    disabled={currentPage === 1}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-45"
+                    aria-label="上一页"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+
+                  {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                    <button
+                      key={`dashboard-page-${pageNumber}`}
+                      type="button"
+                      onClick={() => setCurrentPage(pageNumber)}
+                      className={`min-w-[38px] rounded-[10px] px-3 py-1.5 text-sm transition ${
+                        pageNumber === currentPage
+                          ? 'bg-sky-500/30 text-sky-100'
+                          : 'border border-white/[0.1] bg-white/[0.04] text-slate-300 hover:bg-white/[0.1]'
+                      }`}
+                    >
+                      {pageNumber}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    disabled={currentPage === totalPages}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-45"
+                    aria-label="下一页"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <input
+          ref={launchUploadInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            await handleUploadLaunchImage(file);
+          }}
+        />
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderContent = () => {
     if (currentRoute === 'home') {
