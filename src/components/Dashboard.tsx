@@ -216,7 +216,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   }, [activeProjectMenuId]);
 
   const handleCreateProject = async () => {
-    const project = await createNewProject('AI 设计项目');
+    const project = await createNewProject('AI 设计画布');
     onOpenProject(project);
   };
 
@@ -232,7 +232,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                 众唯 AI 设计 v1.1
               </h2>
               <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
-                直接从这里继续你的画板创作，建议及时下载关键素材。
+                直接从这里继续你的画布创作，建议及时下载关键素材。
               </p>
             </div>
             <button
@@ -260,7 +260,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
               <div className="flex flex-1 items-center justify-center rounded-[14px] bg-[#0d111a] text-slate-400 transition group-hover:text-slate-100">
                 <div className="flex flex-col items-center gap-3">
                   <Plus className="h-10 w-10 stroke-[1.6]" />
-                  <div className="text-[18px] font-semibold text-slate-200">新的画板</div>
+                  <div className="text-[18px] font-semibold text-slate-200">新的画布</div>
                 </div>
               </div>
             </button>
@@ -281,7 +281,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
                   <div className="min-h-0 flex-1 px-1 pt-3">
                     <h3 className="line-clamp-2 text-[14px] font-semibold leading-6 text-white">
-                      {project.name || '未命名画板'}
+                      {project.name || '未命名画布'}
                     </h3>
                   </div>
                 </button>

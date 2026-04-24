@@ -2343,7 +2343,7 @@ export default function AiVisionWorkspace({
                 hasManualBoardNameEditRef.current = true;
                 setBoardName(event.target.value);
               }}
-              className="w-[240px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-base font-semibold text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
+              className="w-[240px] rounded-xl border border-transparent bg-transparent px-3 py-2 text-[14px] font-medium text-white outline-none transition focus:border-white/[0.08] focus:bg-white/[0.03]"
             />
           </div>
         </header>

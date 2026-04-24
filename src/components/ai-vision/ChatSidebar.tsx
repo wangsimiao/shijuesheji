@@ -481,10 +481,10 @@ export default function ChatSidebar({
                 <button
                   type="button"
                   onClick={onCreateSession}
-                  className="inline-flex h-10 items-center justify-center rounded-[16px] bg-white/[0.05] px-4 text-[13px] font-medium text-white transition hover:bg-white/[0.08]"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-[16px] bg-white/[0.05] text-white transition hover:bg-white/[0.08]"
                   aria-label="新建对话"
                 >
-                  新建对话
+                  <Plus className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
