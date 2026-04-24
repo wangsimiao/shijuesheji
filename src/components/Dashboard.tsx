@@ -556,7 +556,9 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                                   ? 'bg-cyan-500/15 text-cyan-100'
                                   : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.07] hover:text-white'
                               }`}
+                              style={{ fontSize: 0 }}
                             >
+                              <span className="text-[12px]">{'\u54c1\u724c\u89c4\u8303'}</span>
                               品牌规范
                             </button>
                             {launchBrandSpecs.map((spec) => (
@@ -634,7 +636,9 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                                 ? 'bg-cyan-500/15 text-cyan-100'
                                 : 'bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
                             }`}
+                            style={{ fontSize: 0 }}
                           >
+                            <span className="text-[11px]">{'\u4e0d\u6307\u5b9a\u5c3a\u5bf8'}</span>
                             不指定尺寸
                           </button>
                         </HomeMenuPanel>
