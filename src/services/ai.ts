@@ -108,6 +108,29 @@ const IMAGE_INTENT_KEYWORDS = [
   'generate',
 ];
 
+const IMAGE_INTENT_KEYWORDS_V2 = [
+  '生图',
+  '出图',
+  '生成',
+  '生成图',
+  '生成图片',
+  '图生图',
+  '改图',
+  '海报',
+  '主图',
+  '详情图',
+  '买家秀',
+  '电商图',
+  '图片',
+  '图像',
+  '画一张',
+  'render',
+  'image',
+  'poster',
+  'draw',
+  'generate',
+];
+
 const DOUBAO_REFERENCE_IMAGE_MAX_COUNT = 14;
 const DOUBAO_REFERENCE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const DOUBAO_REFERENCE_IMAGE_MAX_PIXELS = 36_000_000;
@@ -259,6 +282,7 @@ function buildUserContent(text: string, attachedImages: string[] = []): string |
 function shouldGenerateImage(userMessage: string, attachedImages: string[] = []) {
   const text = userMessage.trim().toLowerCase();
   if (!text) return false;
+  if (IMAGE_INTENT_KEYWORDS_V2.some((keyword) => text.includes(keyword))) return true;
   if (IMAGE_INTENT_KEYWORDS.some((keyword) => text.includes(keyword))) return true;
   return attachedImages.length > 0;
 }
@@ -273,13 +297,35 @@ function readErrorMessage(payload: any, status: number) {
   return String(message);
 }
 
+function normalizeApiBaseUrl(baseUrl: string) {
+  const trimmed = (baseUrl || '').trim();
+  if (!trimmed) return '';
+
+  let normalized = trimmed.replace(/\/+$/, '');
+  // Allow users to paste a full endpoint and still work.
+  normalized = normalized.replace(/\/chat\/completions\/?$/i, '');
+  return normalized;
+}
+
+function buildApiRequestUrl(baseUrl: string, path: string) {
+  const normalizedBase = normalizeApiBaseUrl(baseUrl);
+  const normalizedPath = `/${String(path || '').replace(/^\/+/, '')}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function is404LikeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const normalized = message.toLowerCase();
+  return normalized.includes('404') || normalized.includes('not found');
+}
+
 async function proxyJSON(
   method: 'POST' | 'GET',
   path: string,
   config: RequestConfig,
   body?: Record<string, unknown>
 ) {
-  const requestUrl = `${config.apiBaseUrl}${path}`;
+  const requestUrl = buildApiRequestUrl(config.apiBaseUrl, path);
   const payload = {
     targetUrl: requestUrl,
     method,
@@ -290,13 +336,19 @@ async function proxyJSON(
     },
     body,
   };
-  const response = await fetch(BACKEND_PROXY_PATH, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch(BACKEND_PROXY_PATH, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown');
+    throw new Error(`同源代理请求失败（${BACKEND_PROXY_PATH}）：${message}`);
+  }
   const json = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(readErrorMessage(json, response.status));
@@ -305,16 +357,9 @@ async function proxyJSON(
 }
 
 async function postJSON(path: string, body: Record<string, unknown>, config: RequestConfig) {
-  const requestUrl = `${config.apiBaseUrl}${path}`;
+  const requestUrl = buildApiRequestUrl(config.apiBaseUrl, path);
   if (ENABLE_BACKEND_PROXY) {
-    try {
-      return await proxyJSON('POST', path, config, body);
-    } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : '';
-      if (!message.includes('404') && !message.includes('proxy')) {
-        throw error;
-      }
-    }
+    return proxyJSON('POST', path, config, body);
   }
   let response: Response;
   try {
@@ -340,16 +385,9 @@ async function postJSON(path: string, body: Record<string, unknown>, config: Req
 }
 
 async function getJSON(path: string, config: RequestConfig) {
-  const requestUrl = `${config.apiBaseUrl}${path}`;
+  const requestUrl = buildApiRequestUrl(config.apiBaseUrl, path);
   if (ENABLE_BACKEND_PROXY) {
-    try {
-      return await proxyJSON('GET', path, config);
-    } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : '';
-      if (!message.includes('404') && !message.includes('proxy')) {
-        throw error;
-      }
-    }
+    return proxyJSON('GET', path, config);
   }
   let response: Response;
   try {
@@ -1137,20 +1175,46 @@ async function generateOpenRouterImage(
   });
 
   try {
-    const payload = await postJSON(
-      '/chat/completions',
-      {
-        model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
-        messages,
-        modalities: ['image', 'text'],
-        stream: false,
-      },
-      {
-        apiBaseUrl: config.apiBaseUrl,
-        apiKey: config.apiKey,
-        headers: getOpenRouterHeaders(),
-      }
+    const requestBody = {
+      model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
+      messages,
+      modalities: ['image', 'text'],
+      stream: false,
+    };
+    const baseUrlCandidates = Array.from(
+      new Set(
+        [config.apiBaseUrl, OPENROUTER_DEFAULT_API_BASE_URL]
+          .map((value) => normalizeApiBaseUrl(value))
+          .filter(Boolean)
+      )
     );
+    let payload: any = null;
+    let last404Error: Error | null = null;
+
+    for (const baseUrl of baseUrlCandidates) {
+      try {
+        payload = await postJSON('/chat/completions', requestBody, {
+          apiBaseUrl: baseUrl,
+          apiKey: config.apiKey,
+          // Keep request shape aligned with the tested curl command.
+          headers: {},
+        });
+        break;
+      } catch (error) {
+        if (is404LikeError(error)) {
+          last404Error = error instanceof Error ? error : new Error(String(error || 'HTTP 404'));
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!payload) {
+      throw (
+        last404Error ||
+        new Error('OpenRouter 请求失败：未找到可用 chat/completions 端点，请检查模型配置中的 Base URL。')
+      );
+    }
 
     const imageEntries = Array.isArray(payload?.choices?.[0]?.message?.images)
       ? payload.choices[0].message.images
