@@ -1438,6 +1438,43 @@ export default function AiVisionWorkspace({
     return item.id;
   }
 
+  function createLoadingItems(prompt: string, count: number) {
+    const safeCount = Math.max(1, Math.min(4, Math.round(count || 1)));
+    if (safeCount === 1) {
+      return [createLoadingItem(prompt)];
+    }
+
+    const width = 520;
+    const height = 520;
+    const gap = 28;
+    const columns = Math.min(2, safeCount);
+    const start = createAvoidOverlapPosition(
+      itemsRef.current,
+      viewRef.current,
+      viewportSizeRef.current,
+      width,
+      height
+    );
+
+    const loadingItems: CanvasItem[] = Array.from({ length: safeCount }).map((_, index) => {
+      const row = Math.floor(index / columns);
+      const column = index % columns;
+      return {
+        id: uuidv4(),
+        type: 'loading',
+        x: start.x + column * (width + gap),
+        y: start.y + row * (height + gap),
+        width,
+        height,
+        content: prompt || '正在生成...',
+        prompt,
+      };
+    });
+
+    setItems((previous) => [...previous, ...loadingItems]);
+    return loadingItems.map((item) => item.id);
+  }
+
   function finishTextEditing() {
     if (!editingTextItemId) return;
     const item = itemsRef.current.find((current) => current.id === editingTextItemId && current.type === 'text');
@@ -1801,14 +1838,18 @@ export default function AiVisionWorkspace({
 
     try {
       const referenceImage = await exportImageSource(targetItem);
-      const nextImage = await generateImageAI(
+      const result = await generateImageAI(
         prompt,
         selectedImageModel,
         [referenceImage, ...hiddenTemplateReferences],
         {
-        systemPrompt: activeBrandSystemPrompt,
+          systemPrompt: activeBrandSystemPrompt,
         }
       );
+      const nextImage = result.images[0];
+      if (!nextImage) {
+        throw new Error('重绘未返回可用图片。');
+      }
       setItems((previous) =>
         previous.map((item) =>
           item.id === targetItem.id
@@ -1906,39 +1947,79 @@ export default function AiVisionWorkspace({
           if (call.name !== 'generateImage') continue;
 
           const prompt = call.args.prompt.trim();
+          const expectedOutputCount = Math.max(1, Math.min(4, Math.round(call.args.outputCount || 1)));
+          const extraLoadingItemIds =
+            expectedOutputCount > 1
+              ? createLoadingItems(prompt || '正在生成图片...', expectedOutputCount - 1)
+              : [];
+          const imageLoadingMessageId = uuidv4();
           const loadingItemId = createLoadingItem(prompt || '正在生成图片...');
 
+          const loadingItemIds = [loadingItemId, ...extraLoadingItemIds];
+          updateCurrentSessionMessages(currentSession.id, (previous) => [
+            ...previous,
+            {
+              id: imageLoadingMessageId,
+              role: 'assistant',
+              content: '正在生成图片...',
+              isImageLoading: true,
+              imageUrls: Array.from({ length: expectedOutputCount }).map(() => ''),
+            },
+          ]);
+
           try {
-            const imageUrl = await generateImageAI(
+            const imageResult = await generateImageAI(
               prompt,
               selectedImageModel,
               [...(call.args.referenceImages || attachedImages), ...hiddenTemplateReferences],
               {
                 systemPrompt: activeBrandSystemPrompt,
+                outputCount: call.args.outputCount,
+                sizeHint: call.args.sizeHint,
               }
             );
-            const imageSize = await loadImageDimensions(imageUrl).catch(() => ({
-              width: 1024,
-              height: 1024,
-            }));
-            const fitted = fitIntoBounds(imageSize.width, imageSize.height, 520, 520);
+            const generatedUrls = imageResult.images;
+            if (!generatedUrls.length) {
+              throw new Error('图片生成未返回可用结果。');
+            }
+            const preparedImages = await Promise.all(
+              generatedUrls.map(async (imageUrl) => {
+                const imageSize = await loadImageDimensions(imageUrl).catch(() => ({
+                  width: 1024,
+                  height: 1024,
+                }));
+                const fitted = fitIntoBounds(imageSize.width, imageSize.height, 520, 520);
+                return { imageUrl, fitted };
+              })
+            );
 
             setItems((previous) =>
-              previous.map((item) =>
-                item.id === loadingItemId
-                  ? {
-                      ...item,
-                      type: 'image',
-                      width: fitted.width,
-                      height: fitted.height,
-                      content: imageUrl,
-                      prompt,
-                      mimeType: 'image/png',
-                      sourceKind: 'generated',
-                      crop: undefined,
-                    }
-                  : item
-              )
+              previous.flatMap((item) => {
+                const slotIndex = loadingItemIds.indexOf(item.id);
+                if (slotIndex < 0) return [item];
+                const nextImage = preparedImages[slotIndex];
+                if (!nextImage) return [];
+                return [
+                  {
+                    ...item,
+                    type: 'image',
+                    width: nextImage.fitted.width,
+                    height: nextImage.fitted.height,
+                    content: nextImage.imageUrl,
+                    prompt,
+                    mimeType: 'image/png',
+                    sourceKind: 'generated',
+                    crop: undefined,
+                  },
+                ];
+              })
+            );
+            const failedCount = Math.max(0, (imageResult.rawCount || generatedUrls.length) - generatedUrls.length);
+            if (failedCount > 0) {
+              setStatusNotice(`本次有 ${failedCount} 张图片生成失败，已保留成功结果。`);
+            }
+            updateCurrentSessionMessages(currentSession.id, (previous) =>
+              previous.filter((message) => message.id !== imageLoadingMessageId)
             );
 
             updateCurrentSessionMessages(currentSession.id, (previous) => [
@@ -1947,20 +2028,25 @@ export default function AiVisionWorkspace({
                 id: uuidv4(),
                 role: 'assistant',
                 content: `已生成图片：${prompt}`,
-                imageUrl,
+                imageUrl: generatedUrls[0],
+                imageUrls: generatedUrls,
               },
             ]);
           } catch (error) {
             const message = getErrorMessage(error);
+            const loadingIdSet = new Set(loadingItemIds);
             setItems((previous) =>
               previous.map((item) =>
-                item.id === loadingItemId
+                loadingIdSet.has(item.id)
                   ? {
                       ...item,
                       content: message,
                     }
                   : item
               )
+            );
+            updateCurrentSessionMessages(currentSession.id, (previous) =>
+              previous.filter((message) => message.id !== imageLoadingMessageId)
             );
             updateCurrentSessionMessages(currentSession.id, (previous) => [
               ...previous,

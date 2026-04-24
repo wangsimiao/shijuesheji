@@ -40,6 +40,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   imageUrl?: string;
+  imageUrls?: string[];
   isImageLoading?: boolean;
   attachedImages?: string[];
 }
@@ -185,6 +186,7 @@ export interface OpenLovartMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   imageUrl?: string;
+  imageUrls?: string[];
   attachedImages?: string[];
   createdAt: number;
 }

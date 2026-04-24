@@ -435,15 +435,36 @@ export default function ChatSidebar({
                   <div className="space-y-5">
                     {currentSession.messages.map((message) => {
                       const isUser = message.role === 'user';
-                      const hasUserText = message.content.trim().length > 0;
-                      const attachedImages = message.attachedImages || [];
+                      const messageText = typeof message.content === 'string' ? message.content : '';
+                      const hasUserText = messageText.trim().length > 0;
+                      const attachedImages = Array.isArray(message.attachedImages)
+                        ? message.attachedImages.filter(
+                            (item): item is string => typeof item === 'string' && item.trim().length > 0
+                          )
+                        : [];
+                      const assistantImageUrls = Array.isArray(message.imageUrls)
+                        ? message.imageUrls.filter(
+                            (item): item is string => typeof item === 'string' && item.trim().length > 0
+                          )
+                        : [];
+                      const legacyImageUrl =
+                        typeof message.imageUrl === 'string' && message.imageUrl.trim().length > 0
+                          ? message.imageUrl
+                          : null;
+                      if (!assistantImageUrls.length && legacyImageUrl) {
+                        assistantImageUrls.push(legacyImageUrl);
+                      }
+                      const loadingPlaceholderCount = Math.max(
+                        1,
+                        Array.isArray(message.imageUrls) ? message.imageUrls.length : 0
+                      );
                       return (
                         <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                           {isUser ? (
                             <div className="flex max-w-[84%] flex-col items-end gap-2">
                               {hasUserText ? (
                                 <div className="overflow-hidden rounded-[20px] rounded-br-[10px] bg-[#2a2f39] px-4 py-3 text-[13px] leading-6 text-slate-50">
-                                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                                  <p className="whitespace-pre-wrap break-words">{messageText}</p>
                                 </div>
                               ) : null}
 
@@ -466,18 +487,38 @@ export default function ChatSidebar({
                             </div>
                           ) : (
                             <div className="w-full text-[13px] leading-7 text-slate-100">
-                              <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                              <p className="whitespace-pre-wrap break-words">{messageText}</p>
                               {message.isImageLoading ? (
-                                <div className="mt-3 block w-full max-w-[50%] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#222833]">
-                                  <div className="aspect-square w-full animate-pulse bg-[linear-gradient(110deg,#2a3040_8%,#3a4254_18%,#2a3040_33%)] [background-size:200%_100%]" />
+                                <div
+                                  className={`mt-3 grid w-full max-w-[50%] gap-2 ${
+                                    loadingPlaceholderCount > 1 ? 'grid-cols-2' : 'grid-cols-1'
+                                  }`}
+                                >
+                                  {Array.from({ length: loadingPlaceholderCount }).map((_, index) => (
+                                    <div
+                                      key={`${message.id}-loading-${index}`}
+                                      className="overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#222833]"
+                                    >
+                                      <div className="aspect-square w-full animate-pulse bg-[linear-gradient(110deg,#2a3040_8%,#3a4254_18%,#2a3040_33%)] [background-size:200%_100%]" />
+                                    </div>
+                                  ))}
                                 </div>
                               ) : null}
-                              {message.imageUrl ? (
-                                <img
-                                  src={message.imageUrl}
-                                  alt="assistant result"
-                                  className="mt-3 block w-full max-w-[50%] rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
-                                />
+                              {assistantImageUrls.length ? (
+                                <div
+                                  className={`mt-3 grid w-full max-w-[50%] gap-2 ${
+                                    assistantImageUrls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
+                                  }`}
+                                >
+                                  {assistantImageUrls.map((imageUrl, index) => (
+                                    <img
+                                      key={`${message.id}-result-${index}`}
+                                      src={imageUrl}
+                                      alt={`assistant result ${index + 1}`}
+                                      className="block w-full rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
+                                    />
+                                  ))}
+                                </div>
                               ) : null}
                             </div>
                           )}

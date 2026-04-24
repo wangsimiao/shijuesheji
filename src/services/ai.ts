@@ -20,6 +20,8 @@ type GenerateImageFunctionCall = {
   args: {
     prompt: string;
     referenceImages?: string[];
+    outputCount?: number;
+    sizeHint?: string;
   };
 };
 
@@ -51,6 +53,14 @@ export type GenerateVideoTaskResult = {
 
 export type GenerateImageAIOptions = {
   systemPrompt?: string;
+  outputCount?: number;
+  sizeHint?: string;
+};
+
+export type GenerateImageAIResult = {
+  images: string[];
+  provider: ImageModelProvider;
+  rawCount: number;
 };
 
 export type VideoTaskStatusResult = {
@@ -58,6 +68,12 @@ export type VideoTaskStatusResult = {
   status: string;
   progress: number;
   videoUrl?: string;
+};
+
+type ImageGenerationIntent = {
+  isGroupOutput: boolean;
+  outputCount: number;
+  explicitSize?: string;
 };
 
 const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
@@ -90,22 +106,47 @@ const IMAGE_INTENT_KEYWORDS = [
   'generate',
 ];
 
+const DOUBAO_REFERENCE_IMAGE_MAX_COUNT = 14;
+const DOUBAO_REFERENCE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const DOUBAO_REFERENCE_IMAGE_MAX_PIXELS = 36_000_000;
+const DOUBAO_REFERENCE_IMAGE_MIN_EDGE = 14;
+const DOUBAO_REFERENCE_IMAGE_MAX_RATIO = 16;
+const GROUP_OUTPUT_DEFAULT_COUNT = 4;
+const GROUP_OUTPUT_MIN_COUNT = 2;
+const GROUP_OUTPUT_MAX_COUNT = 4;
+
+const SIZE_RATIO_MAP: Record<string, string> = {
+  '1:1': '2048x2048',
+  '4:3': '2048x1536',
+  '3:4': '1536x2048',
+  '16:9': '2048x1152',
+  '9:16': '1152x2048',
+};
+
 export const generateImageTool = {
   name: 'generateImage',
-  description: '根据提示词生成图片，可选参考图。',
+  description: 'Generate images from prompt and optional references.',
   parameters: {
     type: 'object',
     properties: {
       prompt: {
         type: 'string',
-        description: '用于生图的提示词。',
+        description: 'Prompt for image generation.',
       },
       referenceImages: {
         type: 'array',
-        description: '可选，参考图 URL 或 data URL 列表。',
+        description: 'Optional reference image URLs or data URLs.',
         items: {
           type: 'string',
         },
+      },
+      outputCount: {
+        type: 'number',
+        description: 'Optional output count for grouped generation, supports 2~4.',
+      },
+      sizeHint: {
+        type: 'string',
+        description: 'Optional explicit size hint, e.g. 2K / 2048x1536 / 16:9.',
       },
     },
     required: ['prompt'],
@@ -273,6 +314,114 @@ function decodeJsonString(raw: string) {
   }
 }
 
+function clampOutputCount(value: number) {
+  if (!Number.isFinite(value)) return 1;
+  const rounded = Math.round(value);
+  if (rounded <= 1) return 1;
+  return Math.min(GROUP_OUTPUT_MAX_COUNT, Math.max(GROUP_OUTPUT_MIN_COUNT, rounded));
+}
+
+function parseOutputCountFromUnknown(value: unknown): number | undefined {
+  if (typeof value === 'number') return clampOutputCount(value);
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (!Number.isNaN(parsed)) {
+      return clampOutputCount(parsed);
+    }
+  }
+  return undefined;
+}
+
+function parseOutputCountFromPrompt(prompt: string): number | undefined {
+  const matchers: RegExp[] = [
+    /([1-4])\s*(?:张|個|个|幅|组|套|images?|pics?|posters?)/i,
+    /(?:生成|出|给我|来|要)\s*([1-4])\s*(?:张|個|个|幅|组|套)/i,
+    /(?:x|×)\s*([1-4])\s*(?:张|個|个|幅|images?)/i,
+    /\b([1-4])\s*(?:images?|variations?)\b/i,
+  ];
+  for (const matcher of matchers) {
+    const matched = prompt.match(matcher);
+    if (!matched?.[1]) continue;
+    const parsed = Number.parseInt(matched[1], 10);
+    if (Number.isNaN(parsed)) continue;
+    if (parsed <= 1) return 1;
+    return clampOutputCount(parsed);
+  }
+
+  if (/(两|兩)\s*(?:张|個|个|幅|组|套)/.test(prompt)) return 2;
+  if (/(三)\s*(?:张|個|个|幅|组|套)/.test(prompt)) return 3;
+  if (/(四)\s*(?:张|個|个|幅|组|套)/.test(prompt)) return 4;
+  return undefined;
+}
+
+function hasGroupOutputIntent(prompt: string) {
+  const normalized = prompt.toLowerCase();
+  const keywords = [
+    '组图',
+    '多图',
+    '多张',
+    '一组',
+    '分镜',
+    '四宫格',
+    '九宫格',
+    '组海报',
+    'multi image',
+    'multiple images',
+    'set of',
+    'variations',
+  ];
+  return keywords.some((keyword) => normalized.includes(keyword));
+}
+
+function normalizeSizeToken(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const kMatch = trimmed.match(/\b([1-4])\s*k\b/i);
+  if (kMatch?.[1]) {
+    return `${kMatch[1]}K`;
+  }
+
+  const pixelMatch = trimmed.match(/(\d{2,5})\s*[x×*]\s*(\d{2,5})/i);
+  if (pixelMatch?.[1] && pixelMatch[2]) {
+    return `${pixelMatch[1]}x${pixelMatch[2]}`;
+  }
+
+  const ratioMatch = trimmed.match(/\b(1:1|4:3|3:4|16:9|9:16)\b/i);
+  if (ratioMatch?.[1]) {
+    return SIZE_RATIO_MAP[ratioMatch[1].toLowerCase()];
+  }
+
+  return undefined;
+}
+
+function parseExplicitSize(prompt: string, sizeHint?: string) {
+  if (typeof sizeHint === 'string' && sizeHint.trim()) {
+    const normalizedFromHint = normalizeSizeToken(sizeHint);
+    if (normalizedFromHint) return normalizedFromHint;
+  }
+  return normalizeSizeToken(prompt);
+}
+
+function resolveImageGenerationIntent(
+  prompt: string,
+  options?: { outputCount?: number; sizeHint?: string }
+): ImageGenerationIntent {
+  const promptOutputCount = parseOutputCountFromPrompt(prompt);
+  const requestedOutputCount = parseOutputCountFromUnknown(options?.outputCount);
+  const explicitSize = parseExplicitSize(prompt, options?.sizeHint);
+  const groupedByPrompt = hasGroupOutputIntent(prompt);
+  const baseCount = requestedOutputCount ?? promptOutputCount;
+  const outputCount = baseCount ?? (groupedByPrompt ? GROUP_OUTPUT_DEFAULT_COUNT : 1);
+  const isGroupOutput = outputCount > 1 || groupedByPrompt;
+
+  return {
+    isGroupOutput,
+    outputCount: isGroupOutput ? clampOutputCount(outputCount) : 1,
+    explicitSize,
+  };
+}
+
 function parseFunctionCallsFromMarkers(rawText: string) {
   const functionCalls: GenerateImageFunctionCall[] = [];
   const markerRegex = /<\|FunctionCallBegin\|>([\s\S]*?)<\|FunctionCallEnd\|>/g;
@@ -297,11 +446,28 @@ function parseFunctionCallsFromMarkers(rawText: string) {
         const referenceImages = Array.isArray(rawRefs)
           ? rawRefs.filter((item: unknown) => typeof item === 'string' && item.trim())
           : [];
+        const parsedOutputCount = parseOutputCountFromUnknown(
+          params?.outputCount ?? params?.output_count ?? params?.max_images
+        );
+        const parsedSizeHint =
+          typeof params?.sizeHint === 'string'
+            ? params.sizeHint.trim()
+            : typeof params?.size_hint === 'string'
+            ? params.size_hint.trim()
+            : typeof params?.size === 'string'
+            ? params.size.trim()
+            : undefined;
+        const intent = resolveImageGenerationIntent(prompt, {
+          outputCount: parsedOutputCount,
+          sizeHint: parsedSizeHint,
+        });
         functionCalls.push({
           name: 'generateImage',
           args: {
             prompt,
             referenceImages,
+            outputCount: intent.outputCount > 1 ? intent.outputCount : undefined,
+            sizeHint: intent.explicitSize,
           },
         });
       }
@@ -335,12 +501,23 @@ function parseFunctionCallsFallback(rawText: string): GenerateImageFunctionCall[
     }
   }
 
+  const outputCountMatch = rawText.match(/"outputCount"\s*:\s*(\d+)/i);
+  const sizeHintMatch = rawText.match(/"sizeHint"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  const outputCount = outputCountMatch?.[1] ? Number.parseInt(outputCountMatch[1], 10) : undefined;
+  const sizeHint = sizeHintMatch?.[1] ? decodeJsonString(sizeHintMatch[1]).trim() : undefined;
+  const intent = resolveImageGenerationIntent(prompt, {
+    outputCount,
+    sizeHint,
+  });
+
   return [
     {
       name: 'generateImage',
       args: {
         prompt,
         referenceImages: Array.from(refs).filter(Boolean),
+        outputCount: intent.outputCount > 1 ? intent.outputCount : undefined,
+        sizeHint: intent.explicitSize,
       },
     },
   ];
@@ -383,6 +560,7 @@ export async function chatWithAI(
   options?: ChatWithAIOptions
 ) {
   if (shouldGenerateImage(userMessage, attachedImages)) {
+    const intent = resolveImageGenerationIntent(userMessage);
     return {
       text: '',
       functionCalls: [
@@ -391,6 +569,8 @@ export async function chatWithAI(
           args: {
             prompt: userMessage,
             referenceImages: attachedImages.filter(Boolean),
+            outputCount: intent.outputCount > 1 ? intent.outputCount : undefined,
+            sizeHint: intent.explicitSize,
           },
         } satisfies GenerateImageFunctionCall,
       ],
@@ -466,6 +646,35 @@ function isInvalidFieldError(message: string) {
   );
 }
 
+function mapImageGenerationError(error: unknown) {
+  if (!(error instanceof Error)) return '图片生成失败，请稍后重试。';
+  const message = error.message || '图片生成失败，请稍后重试。';
+  const normalized = message.toLowerCase();
+
+  if (isInvalidFieldError(message)) {
+    return `图片生成失败：参数不符合模型要求（${message}）。请调整提示词后重试。`;
+  }
+  if (
+    normalized.includes('429') ||
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests')
+  ) {
+    return '图片生成失败：请求过于频繁，请稍后重试。';
+  }
+  if (
+    normalized.includes('502') ||
+    normalized.includes('503') ||
+    normalized.includes('504') ||
+    normalized.includes('gateway') ||
+    normalized.includes('network') ||
+    normalized.includes('failed to fetch') ||
+    normalized.includes('cors')
+  ) {
+    return '图片生成失败：网络或网关异常，请稍后重试。';
+  }
+  return message;
+}
+
 function isRetryableVideoShapeError(message: string) {
   const normalized = message.toLowerCase();
   return (
@@ -539,73 +748,195 @@ function extractVideoUrl(payload: any) {
   );
 }
 
+function parseDataUrlMimeAndBody(dataUrl: string) {
+  const matched = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,([\s\S]+)$/i);
+  if (!matched?.[1] || !matched[2]) return null;
+  return {
+    mimeType: matched[1].toLowerCase(),
+    base64Body: matched[2].replace(/\s+/g, ''),
+  };
+}
+
+function estimateBase64Bytes(base64Body: string) {
+  const padding = (base64Body.match(/=+$/)?.[0]?.length ?? 0);
+  return Math.floor((base64Body.length * 3) / 4) - padding;
+}
+
+async function loadDataUrlDimensions(dataUrl: string) {
+  if (typeof Image === 'undefined') return null;
+  return new Promise<{ width: number; height: number } | null>((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      });
+    };
+    image.onerror = () => resolve(null);
+    image.src = dataUrl;
+  });
+}
+
+async function validateDoubaoReferenceImages(referenceImages: string[]) {
+  if (referenceImages.length > DOUBAO_REFERENCE_IMAGE_MAX_COUNT) {
+    throw new Error(`参考图最多支持 ${DOUBAO_REFERENCE_IMAGE_MAX_COUNT} 张，请减少后重试。`);
+  }
+
+  for (const imageRef of referenceImages) {
+    if (!imageRef || typeof imageRef !== 'string') {
+      throw new Error('参考图格式无效，请重新上传后重试。');
+    }
+
+    const trimmed = imageRef.trim();
+    if (!trimmed) {
+      throw new Error('参考图格式无效，请重新上传后重试。');
+    }
+
+    if (trimmed.startsWith('data:')) {
+      const parsed = parseDataUrlMimeAndBody(trimmed);
+      if (!parsed) {
+        throw new Error('参考图仅支持图片 data URL（base64）格式。');
+      }
+
+      const bytes = estimateBase64Bytes(parsed.base64Body);
+      if (bytes > DOUBAO_REFERENCE_IMAGE_MAX_BYTES) {
+        throw new Error('参考图单张大小不能超过 10MB，请压缩后重试。');
+      }
+
+      const dimensions = await loadDataUrlDimensions(trimmed);
+      if (!dimensions) continue;
+
+      if (
+        dimensions.width <= DOUBAO_REFERENCE_IMAGE_MIN_EDGE ||
+        dimensions.height <= DOUBAO_REFERENCE_IMAGE_MIN_EDGE
+      ) {
+        throw new Error('参考图分辨率过小，请使用更清晰的图片。');
+      }
+      const ratio = Math.max(dimensions.width / dimensions.height, dimensions.height / dimensions.width);
+      if (ratio > DOUBAO_REFERENCE_IMAGE_MAX_RATIO) {
+        throw new Error('参考图宽高比超出限制（需在 1/16 到 16 之间）。');
+      }
+      if (dimensions.width * dimensions.height > DOUBAO_REFERENCE_IMAGE_MAX_PIXELS) {
+        throw new Error('参考图像素过大（不能超过 6000x6000），请压缩后重试。');
+      }
+      continue;
+    }
+
+    try {
+      // eslint-disable-next-line no-new
+      new URL(trimmed);
+    } catch {
+      throw new Error('参考图 URL 无效，请检查后重试。');
+    }
+  }
+}
+
+function isSeedream5Model(model: string) {
+  return /seedream[-_]?5/i.test(model);
+}
+
+async function extractImagesFromGenerationPayload(
+  payload: any
+): Promise<{ images: string[]; rawCount: number }> {
+  const entries = Array.isArray(payload?.data) ? payload.data : [];
+  const images: string[] = [];
+
+  for (const entry of entries) {
+    if (entry?.b64_json && typeof entry.b64_json === 'string') {
+      images.push(`data:image/png;base64,${entry.b64_json}`);
+      continue;
+    }
+    if (entry?.url && typeof entry.url === 'string') {
+      try {
+        images.push(await fetchImageAsDataUrl(entry.url));
+      } catch {
+        images.push(entry.url);
+      }
+    }
+  }
+
+  return {
+    images,
+    rawCount: entries.length || images.length,
+  };
+}
+
+function buildDoubaoImagePayload(
+  prompt: string,
+  model: string,
+  referenceImages: string[],
+  options?: GenerateImageAIOptions
+) {
+  const intent = resolveImageGenerationIntent(prompt, {
+    outputCount: options?.outputCount,
+    sizeHint: options?.sizeHint,
+  });
+  const finalPrompt = options?.systemPrompt?.trim()
+    ? `[系统规范]\n${options.systemPrompt.trim()}\n\n[用户需求]\n${prompt}`
+    : prompt;
+  const payload: Record<string, unknown> = {
+    model,
+    prompt: finalPrompt,
+    response_format: 'b64_json',
+    watermark: false,
+    sequential_image_generation: intent.isGroupOutput ? 'auto' : 'disabled',
+  };
+
+  if (isSeedream5Model(model)) {
+    payload.output_format = 'png';
+  }
+  if (intent.explicitSize) {
+    // 仅在用户明确要求尺寸时透传
+    payload.size = intent.explicitSize;
+  }
+  if (intent.isGroupOutput) {
+    payload.sequential_image_generation_options = {
+      max_images: intent.outputCount,
+    };
+  }
+  if (referenceImages.length === 1) {
+    payload.image = referenceImages[0];
+  } else if (referenceImages.length > 1) {
+    payload.image = referenceImages;
+  }
+
+  return payload;
+}
+
 async function generateDoubaoImage(
   prompt: string,
   model: string,
   referenceImages: string[],
   options?: GenerateImageAIOptions
-): Promise<string> {
+): Promise<GenerateImageAIResult> {
   const config = resolveDoubaoImageConfig();
   if (!config.apiKey) {
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
   const refs = referenceImages.filter(Boolean);
-  const finalPrompt = options?.systemPrompt?.trim()
-    ? `[系统规范]\n${options.systemPrompt.trim()}\n\n[用户需求]\n${prompt}`
-    : prompt;
-  const basePayload: Record<string, unknown> = {
-    model: (model || config.imageModel).trim(),
-    prompt: finalPrompt,
-    response_format: 'b64_json',
-    watermark: false,
-  };
-
-  let payload: any;
-  if (!refs.length) {
-    payload = await postJSON('/images/generations', basePayload, config);
-  } else {
-    const candidates: Record<string, unknown>[] = [
-      { ...basePayload, image: refs.length === 1 ? refs[0] : refs },
-      { ...basePayload, images: refs },
-      { ...basePayload, reference_images: refs },
-      { ...basePayload, image_urls: refs },
-    ];
-
-    let lastSchemaError: Error | null = null;
-    for (const candidate of candidates) {
-      try {
-        payload = await postJSON('/images/generations', candidate, config);
-        lastSchemaError = null;
-        break;
-      } catch (error) {
-        if (!(error instanceof Error) || !isInvalidFieldError(error.message)) {
-          throw error;
-        }
-        lastSchemaError = error;
-      }
+  try {
+    await validateDoubaoReferenceImages(refs);
+    const resolvedModel = (model || config.imageModel).trim();
+    const payload = await postJSON(
+      '/images/generations',
+      buildDoubaoImagePayload(prompt, resolvedModel, refs, options),
+      config
+    );
+    const extracted = await extractImagesFromGenerationPayload(payload);
+    if (extracted.images.length === 0) {
+      const message =
+        payload?.error?.message || payload?.message || payload?.msg || '图片生成成功但未返回可用图片。';
+      throw new Error(String(message));
     }
-    if (lastSchemaError) {
-      throw lastSchemaError;
-    }
+    return {
+      images: extracted.images,
+      provider: 'doubao',
+      rawCount: extracted.rawCount,
+    };
+  } catch (error) {
+    throw new Error(mapImageGenerationError(error));
   }
-
-  const image = payload?.data?.[0];
-  if (image?.b64_json) {
-    return `data:image/png;base64,${image.b64_json}`;
-  }
-
-  if (image?.url) {
-    try {
-      return await fetchImageAsDataUrl(String(image.url));
-    } catch {
-      return String(image.url);
-    }
-  }
-
-  const message =
-    payload?.error?.message || payload?.message || payload?.msg || '生图成功但未返回可用图片。';
-  throw new Error(String(message));
 }
 
 async function generateOpenRouterImage(
@@ -613,7 +944,7 @@ async function generateOpenRouterImage(
   model: string,
   referenceImages: string[],
   options?: GenerateImageAIOptions
-): Promise<string> {
+): Promise<GenerateImageAIResult> {
   const config = resolveOpenRouterImageConfig();
   if (!config.apiKey) {
     throw new Error(getResolvedImageModelConfigurationMessage(model));
@@ -645,34 +976,55 @@ async function generateOpenRouterImage(
     content: userContent,
   });
 
-  const payload = await postJSON(
-    '/chat/completions',
-    {
-      model: (model || config.imageModel).trim(),
-      messages,
-      modalities: ['image', 'text'],
-      stream: false,
-    },
-    {
-      apiBaseUrl: config.apiBaseUrl,
-      apiKey: config.apiKey,
-      headers: getOpenRouterHeaders(),
-    }
-  );
+  try {
+    const payload = await postJSON(
+      '/chat/completions',
+      {
+        model: (model || config.imageModel).trim(),
+        messages,
+        modalities: ['image', 'text'],
+        stream: false,
+      },
+      {
+        apiBaseUrl: config.apiBaseUrl,
+        apiKey: config.apiKey,
+        headers: getOpenRouterHeaders(),
+      }
+    );
 
-  const imageUrl = payload?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-  if (typeof imageUrl === 'string' && imageUrl.trim()) {
-    if (imageUrl.startsWith('data:')) return imageUrl;
-    try {
-      return await fetchImageAsDataUrl(imageUrl);
-    } catch {
-      return imageUrl;
+    const imageEntries = Array.isArray(payload?.choices?.[0]?.message?.images)
+      ? payload.choices[0].message.images
+      : [];
+    const images: string[] = [];
+
+    for (const imageEntry of imageEntries) {
+      const imageUrl = imageEntry?.image_url?.url;
+      if (typeof imageUrl !== 'string' || !imageUrl.trim()) continue;
+      if (imageUrl.startsWith('data:')) {
+        images.push(imageUrl);
+      } else {
+        try {
+          images.push(await fetchImageAsDataUrl(imageUrl));
+        } catch {
+          images.push(imageUrl);
+        }
+      }
     }
+
+    if (!images.length) {
+      const message =
+        payload?.error?.message || payload?.message || payload?.msg || 'OpenRouter 未返回可用图片。';
+      throw new Error(String(message));
+    }
+
+    return {
+      images,
+      provider: 'openrouter',
+      rawCount: imageEntries.length || images.length,
+    };
+  } catch (error) {
+    throw new Error(mapImageGenerationError(error));
   }
-
-  const message =
-    payload?.error?.message || payload?.message || payload?.msg || 'OpenRouter 未返回可用图片。';
-  throw new Error(String(message));
 }
 
 export async function generateImageAI(
@@ -680,7 +1032,7 @@ export async function generateImageAI(
   model: string = DOUBAO_5_IMAGE_MODEL,
   referenceImages: string[] = [],
   options?: GenerateImageAIOptions
-): Promise<string> {
+): Promise<GenerateImageAIResult> {
   const cleanPrompt = prompt.trim();
   if (!cleanPrompt) {
     throw new Error('提示词不能为空。');
