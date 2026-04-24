@@ -1948,14 +1948,8 @@ export default function AiVisionWorkspace({
 
           const prompt = call.args.prompt.trim();
           const expectedOutputCount = Math.max(1, Math.min(4, Math.round(call.args.outputCount || 1)));
-          const extraLoadingItemIds =
-            expectedOutputCount > 1
-              ? createLoadingItems(prompt || '正在生成图片...', expectedOutputCount - 1)
-              : [];
           const imageLoadingMessageId = uuidv4();
-          const loadingItemId = createLoadingItem(prompt || '正在生成图片...');
-
-          const loadingItemIds = [loadingItemId, ...extraLoadingItemIds];
+          const loadingItemIds = createLoadingItems(prompt || '正在生成图片...', expectedOutputCount);
           updateCurrentSessionMessages(currentSession.id, (previous) => [
             ...previous,
             {
@@ -1974,7 +1968,7 @@ export default function AiVisionWorkspace({
               [...(call.args.referenceImages || attachedImages), ...hiddenTemplateReferences],
               {
                 systemPrompt: activeBrandSystemPrompt,
-                outputCount: call.args.outputCount,
+                outputCount: expectedOutputCount,
                 sizeHint: call.args.sizeHint,
               }
             );
