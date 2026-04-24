@@ -42,28 +42,28 @@ function DesignProjectsLoading() {
   const skeletonCards = Array.from({ length: 7 });
 
   return (
-    <div>
-
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-        <div className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151a25] p-4">
-          <div className="ai-loader-shimmer h-full w-full rounded-[14px] bg-[linear-gradient(90deg,rgba(30,41,59,0.55)_0%,rgba(56,189,248,0.2)_50%,rgba(30,41,59,0.55)_100%)]" />
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+      <div className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col rounded-[20px] border border-white/[0.08] bg-[#161a24] p-4 shadow-[0_16px_34px_rgba(0,0,0,0.24)]">
+        <div className="flex flex-1 items-center justify-center rounded-[14px] bg-[#0d111a]">
+          <div className="ai-loader-shimmer h-12 w-12 rounded-[14px] border border-white/10 bg-[linear-gradient(90deg,rgba(148,163,184,0.08)_0%,rgba(255,255,255,0.26)_50%,rgba(148,163,184,0.08)_100%)]" />
         </div>
-
-        {skeletonCards.map((_, index) => (
-          <article
-            key={`project-loading-${index}`}
-            className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3"
-          >
-            <div className="ai-loader-shimmer aspect-[1.44] overflow-hidden rounded-[14px] bg-[linear-gradient(90deg,rgba(30,41,59,0.6)_0%,rgba(56,189,248,0.22)_50%,rgba(30,41,59,0.6)_100%)]" />
-            <div className="mt-3 space-y-2.5 px-1">
-              <div className="h-3.5 w-[78%] rounded-full bg-white/10 animate-pulse" />
-              <div className="h-3.5 w-[52%] rounded-full bg-white/10 animate-pulse" />
-              <div className="h-3 w-[36%] rounded-full bg-white/10/80 animate-pulse" />
-            </div>
-          </article>
-        ))}
       </div>
 
+      {skeletonCards.map((_, index) => (
+        <article
+          key={`project-loading-${index}`}
+          className="relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)]"
+        >
+          <div className="relative aspect-[1.44] overflow-hidden rounded-[14px] border border-white/[0.05] bg-[#101116]">
+            <div className="ai-loader-shimmer h-full w-full bg-[linear-gradient(90deg,rgba(148,163,184,0.08)_0%,rgba(255,255,255,0.2)_50%,rgba(148,163,184,0.08)_100%)]" />
+          </div>
+          <div className="mt-3 space-y-2.5 px-1">
+            <div className="h-3.5 w-[78%] rounded-full bg-white/10 animate-pulse" />
+            <div className="h-3.5 w-[52%] rounded-full bg-white/10 animate-pulse" />
+            <div className="h-3 w-[36%] rounded-full bg-white/10/80 animate-pulse" />
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -232,7 +232,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                 众唯 AI 设计 v1.1
               </h2>
               <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
-                直接从这里继续你的画板创作。建议及时下载关键素材，避免本地缓存丢失。
+                直接从这里继续你的画板创作，建议及时下载关键素材。
               </p>
             </div>
             <button

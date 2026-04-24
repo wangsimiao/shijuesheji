@@ -125,14 +125,16 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
 
   return (
     <div className="h-screen overflow-y-auto bg-[radial-gradient(circle_at_0%_0%,#1d345a_0%,#0a1020_36%,#070b13_72%)] p-6">
-      <div className="mx-auto max-w-[1560px] space-y-6">
-        <section className="rounded-3xl border border-white/10 bg-[#0e1524]/95 p-6 shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="mt-4 text-[30px] font-semibold tracking-[0.01em] text-white">
+      <div className="mx-auto w-full max-w-[1560px] space-y-6">
+        <section className="relative mb-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[linear-gradient(130deg,#101525_0%,#0d1220_45%,#0a0f19_100%)] px-6 py-5 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
+          <div className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-16 left-16 h-40 w-40 rounded-full bg-cyan-500/18 blur-3xl" />
+          <div className="relative flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="mt-2 text-[30px] font-semibold tracking-[0.01em] text-white">
                 模型连接配置中心
               </h1>
-              <p className="mt-3 max-w-[760px] text-sm leading-7 text-slate-300">
+              <p className="mt-3 max-w-[820px] text-sm leading-7 text-slate-300">
                 这里统一管理 AI 设计的出图模型。你保存后，画布和对话侧栏会读取同一份配置。
               </p>
             </div>
@@ -141,7 +143,7 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
               <button
                 type="button"
                 onClick={onBack}
-                className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/12 bg-white/5 px-4 text-sm text-slate-100 transition hover:bg-white/10"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12]"
               >
                 <ArrowLeft className="h-4 w-4" />
                 返回 AI 设计
@@ -149,7 +151,7 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
               <button
                 type="button"
                 onClick={handleResetModelSettings}
-                className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/12 bg-white/5 px-4 text-sm text-slate-100 transition hover:bg-white/10"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12]"
               >
                 <RefreshCcw className="h-4 w-4" />
                 恢复默认
@@ -157,7 +159,7 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
               <button
                 type="button"
                 onClick={handleSaveModelSettings}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#2f6bff] px-4 text-sm font-medium text-white transition hover:bg-[#3b78ff]"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#2f6bff] px-4 text-sm font-medium text-white transition hover:bg-[#3b78ff]"
               >
                 <Save className="h-4 w-4" />
                 保存设置
