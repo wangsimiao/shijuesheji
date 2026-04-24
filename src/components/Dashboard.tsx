@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ChevronLeft,
+  ChevronRight,
   Image as ImageIcon,
   MoreHorizontal,
   Plus,
@@ -24,6 +26,8 @@ interface DashboardProps {
 const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
   { route: 'design', label: 'AI 设计' },
 ];
+
+const PROJECTS_PER_PAGE = 11;
 
 type ProjectPreviewMedia =
   | { type: 'image'; src: string }
@@ -173,7 +177,10 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   const [projects, setProjects] = useState<Project[]>([]);
   const [isProjectsLoading, setIsProjectsLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
   const [activeProjectMenuId, setActiveProjectMenuId] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
 
   useEffect(() => {
     if (currentRoute !== 'design') return;
@@ -215,9 +222,44 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     return () => window.removeEventListener('pointerdown', handleWindowPointerDown);
   }, [activeProjectMenuId]);
 
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(projects.length / PROJECTS_PER_PAGE)),
+    [projects.length]
+  );
+
+  const paginatedProjects = useMemo(() => {
+    const startIndex = (currentPage - 1) * PROJECTS_PER_PAGE;
+    return projects.slice(startIndex, startIndex + PROJECTS_PER_PAGE);
+  }, [currentPage, projects]);
+
+  useEffect(() => {
+    setCurrentPage((previous) => {
+      if (previous < 1) return 1;
+      if (previous > totalPages) return totalPages;
+      return previous;
+    });
+  }, [totalPages]);
+
+  useEffect(() => {
+    if (currentRoute !== 'design') return;
+    setCurrentPage(1);
+  }, [currentRoute]);
+
   const handleCreateProject = async () => {
     const project = await createNewProject('AI 设计画布');
     onOpenProject(project);
+  };
+
+  const handleConfirmDeleteProject = async () => {
+    if (!projectToDelete || isDeletingProject) return;
+    setIsDeletingProject(true);
+    try {
+      await deleteProject(projectToDelete.id);
+      setProjectToDelete(null);
+      setRefreshToken((value) => value + 1);
+    } finally {
+      setIsDeletingProject(false);
+    }
   };
 
   const renderDesignContent = () => (
@@ -249,7 +291,8 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
         {isProjectsLoading ? (
           <DesignProjectsLoading />
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+          <div className="space-y-5">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
             <button
               type="button"
               onClick={() => {
@@ -265,7 +308,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
               </div>
             </button>
 
-            {projects.map((project) => (
+            {paginatedProjects.map((project) => (
               <article
                 key={project.id}
                 className="group relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1a1f2d]"
@@ -323,10 +366,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                           onClick={(event) => {
                             event.stopPropagation();
                             setActiveProjectMenuId(null);
-                            if (!window.confirm('确认删除这个项目吗？')) return;
-                            void deleteProject(project.id).then(() => {
-                              setRefreshToken((value) => value + 1);
-                            });
+                            setProjectToDelete(project);
                           }}
                           className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[13px] text-rose-200 transition hover:bg-rose-500/10"
                         >
@@ -339,6 +379,46 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                 </div>
               </article>
             ))}
+            </div>
+
+            {totalPages > 1 ? (
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label="上一页"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                  <button
+                    key={`dashboard-page-${pageNumber}`}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNumber)}
+                    className={`min-w-[38px] rounded-[10px] px-3 py-1.5 text-sm transition ${
+                      pageNumber === currentPage
+                        ? 'bg-sky-500/30 text-sky-100'
+                        : 'border border-white/[0.1] bg-white/[0.04] text-slate-300 hover:bg-white/[0.1]'
+                    }`}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label="下一页"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -409,6 +489,63 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
       </aside>
 
       <main className="flex min-h-0 flex-1 flex-col">{renderContent()}</main>
+
+      {projectToDelete ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#030712]/55 px-4 backdrop-blur-[2px]"
+          onClick={() => {
+            if (isDeletingProject) return;
+            setProjectToDelete(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-[20px] border border-white/[0.1] bg-[linear-gradient(140deg,#111827_0%,#0f172a_58%,#0b1120_100%)] p-5 shadow-[0_28px_80px_rgba(0,0,0,0.45)]"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-rose-500/12 text-rose-200">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-[18px] font-semibold text-white">删除画布</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-300">
+                  确认删除
+                  <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-slate-100">
+                    {projectToDelete.name || '未命名画布'}
+                  </span>
+                  吗？删除后将无法恢复。
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isDeletingProject) return;
+                  setProjectToDelete(null);
+                }}
+                className="inline-flex h-10 items-center justify-center rounded-[12px] border border-white/[0.14] bg-white/[0.04] px-4 text-sm text-slate-100 transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isDeletingProject}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleConfirmDeleteProject();
+                }}
+                className="inline-flex h-10 items-center justify-center rounded-[12px] bg-rose-500 px-4 text-sm font-medium text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isDeletingProject}
+              >
+                {isDeletingProject ? '删除中...' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -81,6 +81,14 @@ function collectImageUrls(input: unknown, target: Set<string>) {
       pushImageUrl(target, record.data);
       continue;
     }
+    if (record.imageUrl && typeof record.imageUrl === 'object') {
+      const nested = record.imageUrl as Record<string, unknown>;
+      if (typeof nested.url === 'string') {
+        pushImageUrl(target, nested.url);
+      }
+    } else if (typeof record.imageUrl === 'string') {
+      pushImageUrl(target, record.imageUrl);
+    }
     if (record.image_url && typeof record.image_url === 'object') {
       const nested = record.image_url as Record<string, unknown>;
       if (typeof nested.url === 'string') {

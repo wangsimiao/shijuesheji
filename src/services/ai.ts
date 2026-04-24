@@ -77,8 +77,11 @@ type ImageGenerationIntent = {
   explicitSize?: string;
 };
 
+type OpenAIGptImageSize = '1024x1024' | '1024x1536' | '1536x1024' | 'auto';
+
 const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const OPENROUTER_DEFAULT_API_BASE_URL = 'https://singapore.zw-ai.com/api/v1/chat/completions';
+const OPENROUTER_OFFICIAL_API_BASE_URL = 'https://openrouter.ai/api/v1';
 const BACKEND_PROXY_PATH = (import.meta.env.VITE_BACKEND_PROXY_PATH || '/api/proxy').trim() || '/api/proxy';
 const ENABLE_BACKEND_PROXY = (import.meta.env.VITE_ENABLE_BACKEND_PROXY || 'true').trim() !== 'false';
 const DEFAULT_CHAT_MODEL = (
@@ -462,6 +465,12 @@ function collectImageUrlsFromUnknown(input: unknown, target: string[]) {
     appendUniqueImageUrl(target, record.url);
     appendUniqueImageUrl(target, record.image);
     appendUniqueImageUrl(target, record.data);
+    if (record.imageUrl && typeof record.imageUrl === 'object') {
+      const nested = record.imageUrl as Record<string, unknown>;
+      appendUniqueImageUrl(target, nested.url);
+    } else {
+      appendUniqueImageUrl(target, record.imageUrl);
+    }
     if (record.image_url && typeof record.image_url === 'object') {
       const nested = record.image_url as Record<string, unknown>;
       appendUniqueImageUrl(target, nested.url);
@@ -483,6 +492,15 @@ function collectImageUrlsFromContent(content: unknown, target: string[]) {
     }
     if (typeof record.image_url === 'string') {
       appendUniqueImageUrl(target, record.image_url);
+      continue;
+    }
+    if (record.imageUrl && typeof record.imageUrl === 'object') {
+      const nested = record.imageUrl as Record<string, unknown>;
+      appendUniqueImageUrl(target, nested.url);
+      continue;
+    }
+    if (typeof record.imageUrl === 'string') {
+      appendUniqueImageUrl(target, record.imageUrl);
       continue;
     }
     appendUniqueImageUrl(target, record.url);
@@ -510,6 +528,12 @@ function extractOpenRouterImageUrls(payload: any) {
       collectImageUrlsFromUnknown(messageRecord.images, urls);
       collectImageUrlsFromUnknown(messageRecord.image, urls);
       collectImageUrlsFromContent(messageRecord.content, urls);
+      if (messageRecord.imageUrl && typeof messageRecord.imageUrl === 'object') {
+        const nested = messageRecord.imageUrl as Record<string, unknown>;
+        appendUniqueImageUrl(urls, nested.url);
+      } else {
+        appendUniqueImageUrl(urls, messageRecord.imageUrl);
+      }
       if (messageRecord.image_url && typeof messageRecord.image_url === 'object') {
         const nested = messageRecord.image_url as Record<string, unknown>;
         appendUniqueImageUrl(urls, nested.url);
@@ -524,6 +548,12 @@ function extractOpenRouterImageUrls(payload: any) {
       collectImageUrlsFromUnknown(deltaRecord.images, urls);
       collectImageUrlsFromUnknown(deltaRecord.image, urls);
       collectImageUrlsFromContent(deltaRecord.content, urls);
+      if (deltaRecord.imageUrl && typeof deltaRecord.imageUrl === 'object') {
+        const nested = deltaRecord.imageUrl as Record<string, unknown>;
+        appendUniqueImageUrl(urls, nested.url);
+      } else {
+        appendUniqueImageUrl(urls, deltaRecord.imageUrl);
+      }
       if (deltaRecord.image_url && typeof deltaRecord.image_url === 'object') {
         const nested = deltaRecord.image_url as Record<string, unknown>;
         appendUniqueImageUrl(urls, nested.url);
@@ -536,8 +566,62 @@ function extractOpenRouterImageUrls(payload: any) {
   return urls;
 }
 
-function buildForcedImagePrompt(prompt: string) {
-  return `${prompt.trim()}\n\n请直接生成图片并返回至少 1 张图像结果，不要只返回文字说明。`;
+function buildForcedImagePromptV2(prompt: string, outputCount: number = 1) {
+  const safePrompt = prompt.trim();
+  if (outputCount > 1) {
+    return `${safePrompt}\n\n请直接输出 ${outputCount} 张不同构图的图片结果，不要只返回文字描述。`;
+  }
+  return `${safePrompt}\n\n请直接生成图片并返回至少 1 张图像结果，不要只返回文字说明。`;
+}
+
+function parseSizeDimensions(value: string) {
+  const match = value.trim().match(/^(\d{2,5})\s*[xX]\s*(\d{2,5})$/);
+  if (!match?.[1] || !match[2]) return null;
+  const width = Number.parseInt(match[1], 10);
+  const height = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function mapDimensionsToOpenAIGptImageSize(width: number, height: number): OpenAIGptImageSize {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return 'auto';
+  }
+  const ratio = width / height;
+  if (ratio >= 1.15) return '1536x1024';
+  if (ratio <= 0.87) return '1024x1536';
+  return '1024x1024';
+}
+
+function resolveOpenAIGptImageSizeFromHint(explicitSize?: string): OpenAIGptImageSize | undefined {
+  if (!explicitSize) return undefined;
+  const normalized = explicitSize.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'auto') return 'auto';
+  if (normalized === '1024x1024' || normalized === '1024x1536' || normalized === '1536x1024') {
+    return normalized;
+  }
+  const size = parseSizeDimensions(normalized);
+  if (size) {
+    return mapDimensionsToOpenAIGptImageSize(size.width, size.height);
+  }
+  return undefined;
+}
+
+async function loadImageDimensionsFromSource(source: string) {
+  if (typeof Image === 'undefined') return null;
+  return new Promise<{ width: number; height: number } | null>((resolve) => {
+    const image = new Image();
+    image.onload = () =>
+      resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      });
+    image.onerror = () => resolve(null);
+    image.src = source;
+  });
 }
 
 function decodeJsonString(raw: string) {
@@ -990,6 +1074,21 @@ function mapImageGenerationError(error: unknown) {
   return message;
 }
 
+function mapInsufficientCreditsError(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  const normalized = (error.message || '').toLowerCase();
+  const isInsufficientCredits =
+    normalized.includes('insufficient credits') ||
+    normalized.includes('payment required') ||
+    normalized.includes('quota exceeded') ||
+    normalized.includes('余额不足') ||
+    normalized.includes('欠费') ||
+    normalized.includes('http 402') ||
+    normalized.includes('402');
+  if (!isInsufficientCredits) return null;
+  return '图片生成失败：当前模型账户已欠费（余额不足）。请先充值后重试：https://openrouter.ai/settings/credits';
+}
+
 function isRetryableVideoShapeError(message: string) {
   const normalized = message.toLowerCase();
   return (
@@ -1250,8 +1349,82 @@ async function generateDoubaoImage(
       rawCount: extracted.rawCount,
     };
   } catch (error) {
+    const billingMessage = mapInsufficientCreditsError(error);
+    if (billingMessage) {
+      throw new Error(billingMessage);
+    }
     throw new Error(mapImageGenerationError(error));
   }
+}
+
+async function resolveOpenRouterImageConfigOptions(
+  intent: ImageGenerationIntent,
+  referenceImages: string[]
+) {
+  const imageConfig: Record<string, unknown> = {};
+  const explicit = resolveOpenAIGptImageSizeFromHint(intent.explicitSize);
+  if (explicit) {
+    imageConfig.size = explicit;
+    return Object.keys(imageConfig).length ? imageConfig : undefined;
+  }
+
+  if (!referenceImages.length) {
+    return undefined;
+  }
+
+  const dimensions = await loadImageDimensionsFromSource(referenceImages[0]).catch(() => null);
+  if (!dimensions) {
+    imageConfig.size = 'auto';
+    return imageConfig;
+  }
+
+  imageConfig.size = mapDimensionsToOpenAIGptImageSize(dimensions.width, dimensions.height);
+  return imageConfig;
+}
+
+function pushUniqueImages(source: string[], target: string[]) {
+  for (const item of source) {
+    if (!item || target.includes(item)) continue;
+    target.push(item);
+  }
+}
+
+async function requestOpenRouterImagePayload(
+  requestBody: Record<string, unknown>,
+  config: ImageProviderConfig
+) {
+  const baseUrlCandidates = Array.from(
+    new Set(
+      [config.apiBaseUrl, OPENROUTER_DEFAULT_API_BASE_URL, OPENROUTER_OFFICIAL_API_BASE_URL]
+        .map((value) => normalizeApiBaseUrl(value))
+        .filter(Boolean)
+    )
+  );
+  let payload: any = null;
+  let last404Error: Error | null = null;
+
+  for (const baseUrl of baseUrlCandidates) {
+    try {
+      payload = await postJSON('/chat/completions', requestBody, {
+        apiBaseUrl: baseUrl,
+        apiKey: config.apiKey,
+        headers: getOpenRouterHeaders(),
+      });
+      break;
+    } catch (error) {
+      if (is404LikeError(error)) {
+        last404Error = error instanceof Error ? error : new Error(String(error || 'HTTP 404'));
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!payload) {
+    throw last404Error || new Error('OpenRouter chat/completions endpoint not found.');
+  }
+
+  return payload;
 }
 
 async function generateOpenRouterImage(
@@ -1266,7 +1439,12 @@ async function generateOpenRouterImage(
   }
 
   const refs = referenceImages.filter(Boolean);
-  const forcedPrompt = buildForcedImagePrompt(prompt);
+  const intent = resolveImageGenerationIntent(prompt, {
+    outputCount: options?.outputCount,
+    sizeHint: options?.sizeHint,
+  });
+  const targetOutputCount = Math.max(1, intent.outputCount || 1);
+  const forcedPrompt = buildForcedImagePromptV2(prompt, targetOutputCount);
   const userContent = refs.length
     ? [
         { type: 'text', text: forcedPrompt } as ChatContentPart,
@@ -1293,40 +1471,74 @@ async function generateOpenRouterImage(
   });
 
   try {
-    const requestBody = {
+    const imageConfig = await resolveOpenRouterImageConfigOptions(intent, refs);
+    const requestBody: Record<string, unknown> = {
       model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
       messages,
       modalities: ['image', 'text'],
       stream: true,
     };
-    const baseUrlCandidates = Array.from(
-      new Set(
-        [config.apiBaseUrl, OPENROUTER_DEFAULT_API_BASE_URL]
-          .map((value) => normalizeApiBaseUrl(value))
-          .filter(Boolean)
-      )
-    );
-    let payload: any = null;
-    let last404Error: Error | null = null;
+    if (imageConfig && Object.keys(imageConfig).length > 0) {
+      requestBody.image_config = imageConfig;
+    }
 
-    for (const baseUrl of baseUrlCandidates) {
-      try {
-        payload = await postJSON('/chat/completions', requestBody, {
-          apiBaseUrl: baseUrl,
-          apiKey: config.apiKey,
-          // Keep request shape aligned with the tested curl command.
-          headers: {},
-        });
-        break;
-      } catch (error) {
-        if (is404LikeError(error)) {
-          last404Error = error instanceof Error ? error : new Error(String(error || 'HTTP 404'));
+    const maxAttempts =
+      targetOutputCount > 1
+        ? Math.min(targetOutputCount + 2, GROUP_OUTPUT_MAX_COUNT + 2)
+        : 1;
+    const images: string[] = [];
+    let rawCount = 0;
+    let lastPayload: any = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const payload = await requestOpenRouterImagePayload(requestBody, config);
+      lastPayload = payload;
+      const imageEntries = extractOpenRouterImageUrls(payload);
+      rawCount += imageEntries.length;
+
+      const convertedBatch: string[] = [];
+      for (const imageUrl of imageEntries) {
+        if (typeof imageUrl !== 'string' || !imageUrl.trim()) continue;
+        if (imageUrl.startsWith('data:')) {
+          convertedBatch.push(imageUrl);
           continue;
         }
-        throw error;
+        try {
+          convertedBatch.push(await fetchImageAsDataUrl(imageUrl));
+        } catch {
+          convertedBatch.push(imageUrl);
+        }
+      }
+      pushUniqueImages(convertedBatch, images);
+
+      if (images.length >= targetOutputCount) {
+        break;
+      }
+      if (targetOutputCount <= 1) {
+        break;
+      }
+      if (!imageEntries.length && attempt >= 1) {
+        break;
       }
     }
 
+    if (!images.length) {
+      const message =
+        lastPayload?.error?.message ||
+        lastPayload?.message ||
+        lastPayload?.msg ||
+        'OpenRouter did not return any usable images.';
+      throw new Error(String(message));
+    }
+
+    const finalImages = images.slice(0, targetOutputCount);
+    return {
+      images: finalImages,
+      provider: 'openrouter',
+      rawCount: rawCount || finalImages.length,
+    };
+
+    /* legacy fallback (kept for migration diff)
     if (!payload) {
       throw (
         last404Error ||
@@ -1361,7 +1573,12 @@ async function generateOpenRouterImage(
       provider: 'openrouter',
       rawCount: imageEntries.length || images.length,
     };
+    */
   } catch (error) {
+    const billingMessage = mapInsufficientCreditsError(error);
+    if (billingMessage) {
+      throw new Error(billingMessage);
+    }
     throw new Error(mapImageGenerationError(error));
   }
 }

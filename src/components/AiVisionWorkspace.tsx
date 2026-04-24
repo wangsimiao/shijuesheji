@@ -1986,27 +1986,7 @@ export default function AiVisionWorkspace({
           try {
             const effectiveSizeHint = activeSizeId || call.args.sizeHint;
             const referenceImages = call.args.referenceImages || attachedImages;
-            let inferredSizeHint = effectiveSizeHint;
-            
-            if (!inferredSizeHint && referenceImages.length > 0) {
-              const firstImage = referenceImages[0];
-              const imageSize = await loadImageDimensions(firstImage).catch(() => null);
-              if (imageSize) {
-                const pixelCount = imageSize.width * imageSize.height;
-                const MIN_PIXELS = 3686400;
-                
-                if (pixelCount < MIN_PIXELS) {
-                  const ratio = imageSize.width / imageSize.height;
-                  const scaleFactor = Math.sqrt(MIN_PIXELS / pixelCount);
-                  const newWidth = Math.round(imageSize.width * scaleFactor);
-                  const newHeight = Math.round(imageSize.height * scaleFactor);
-                  inferredSizeHint = `${newWidth}x${newHeight}`;
-                } else {
-                  inferredSizeHint = `${imageSize.width}x${imageSize.height}`;
-                }
-              }
-            }
-            
+
             const imageResult = await generateImageAI(
               prompt,
               selectedImageModel,
@@ -2014,7 +1994,7 @@ export default function AiVisionWorkspace({
               {
                 systemPrompt: activeBrandSystemPrompt,
                 outputCount: expectedOutputCount,
-                sizeHint: inferredSizeHint,
+                sizeHint: effectiveSizeHint,
               }
             );
             const generatedUrls = imageResult.images;
