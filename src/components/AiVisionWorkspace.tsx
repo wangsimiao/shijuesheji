@@ -311,6 +311,51 @@ function getClientPointCenter(
   };
 }
 
+type MarqueeRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function createMarqueeRect(startPoint: CanvasPoint, currentPoint: CanvasPoint): MarqueeRect {
+  const left = Math.min(startPoint.x, currentPoint.x);
+  const top = Math.min(startPoint.y, currentPoint.y);
+  return {
+    x: left,
+    y: top,
+    width: Math.abs(currentPoint.x - startPoint.x),
+    height: Math.abs(currentPoint.y - startPoint.y),
+  };
+}
+
+function isItemIntersectingMarquee(item: CanvasItem, marquee: MarqueeRect) {
+  const itemLeft = item.x;
+  const itemTop = item.y;
+  const itemRight = item.x + item.width;
+  const itemBottom = item.y + item.height;
+  const marqueeRight = marquee.x + marquee.width;
+  const marqueeBottom = marquee.y + marquee.height;
+
+  return (
+    marquee.x <= itemRight &&
+    marqueeRight >= itemLeft &&
+    marquee.y <= itemBottom &&
+    marqueeBottom >= itemTop
+  );
+}
+
+function cloneCanvasItem(item: CanvasItem, offset = 0): CanvasItem {
+  return {
+    ...item,
+    id: uuidv4(),
+    x: item.x + offset,
+    y: item.y + offset,
+    points: item.points ? item.points.map((point) => ({ ...point })) : undefined,
+    crop: item.crop ? { ...item.crop } : undefined,
+  };
+}
+
 export default function AiVisionWorkspace({
   project,
   onBack,
@@ -336,6 +381,7 @@ export default function AiVisionWorkspace({
   );
   const [actionPopover, setActionPopover] = useState<ActionPopoverState | null>(null);
   const [cropState, setCropState] = useState<CropState | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
   const [drawPreviewPoints, setDrawPreviewPoints] = useState<CanvasPoint[] | null>(null);
   const [linePreviewItem, setLinePreviewItem] = useState<CanvasItem | null>(null);
   const [selectedImageModel, setSelectedImageModel] = useState(initialSnapshot.selectedImageModel);
@@ -382,6 +428,8 @@ export default function AiVisionWorkspace({
   const sessionsRef = useRef(sessions);
   const viewRef = useRef(view);
   const viewportSizeRef = useRef(viewportSize);
+  const chatInputImagesRef = useRef(chatInputImages);
+  const copiedItemsRef = useRef<CanvasItem[] | null>(null);
 
   function clearTouchGestureState() {
     activeTouchGestureRef.current = false;
@@ -416,6 +464,10 @@ export default function AiVisionWorkspace({
   useEffect(() => {
     viewportSizeRef.current = viewportSize;
   }, [viewportSize]);
+
+  useEffect(() => {
+    chatInputImagesRef.current = chatInputImages;
+  }, [chatInputImages]);
 
   useEffect(() => {
     return () => {
@@ -1568,15 +1620,33 @@ export default function AiVisionWorkspace({
       return;
     }
 
-    setSingleSelection(null);
     setActionPopover(null);
+    if (event.altKey) {
+      setSingleSelection(null);
+      interactionRef.current = {
+        type: 'pan',
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        originX: viewRef.current.x,
+        originY: viewRef.current.y,
+      };
+      return;
+    }
+
+    if (!event.shiftKey) {
+      setSingleSelection(null);
+    }
     interactionRef.current = {
-      type: 'pan',
+      type: 'marquee',
       startClientX: event.clientX,
       startClientY: event.clientY,
-      originX: viewRef.current.x,
-      originY: viewRef.current.y,
+      currentClientX: event.clientX,
+      currentClientY: event.clientY,
+      startPoint: point,
+      currentPoint: point,
+      appendSelection: event.shiftKey,
     };
+    setMarqueeRect(createMarqueeRect(point, point));
   }
 
   function handleItemPointerDown(event: React.PointerEvent<HTMLDivElement>, item: CanvasItem) {
@@ -1585,6 +1655,22 @@ export default function AiVisionWorkspace({
     if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     if (cropState) return;
     if (editingTextItemId && editingTextItemId !== item.id) finishTextEditing();
+
+    if (tool === 'select' && event.shiftKey) {
+      setView((previous) => {
+        const selectedIds = new Set(previous.selectedItemIds);
+        if (selectedIds.has(item.id)) {
+          selectedIds.delete(item.id);
+        } else {
+          selectedIds.add(item.id);
+        }
+        return {
+          ...previous,
+          selectedItemIds: Array.from(selectedIds),
+        };
+      });
+      return;
+    }
 
     setSingleSelection(item.id);
     if (tool !== 'select') return;
@@ -1741,33 +1827,114 @@ export default function AiVisionWorkspace({
     );
   }
 
-  function handleCopySelectedItem() {
-    if (!selectedItem) return;
-    if (editingTextItemId) finishTextEditing();
+  function getOrderedSelectedItems() {
+    const selectedIdSet = new Set(viewRef.current.selectedItemIds);
+    return itemsRef.current.filter((item) => selectedIdSet.has(item.id));
+  }
 
-    const nextItem: CanvasItem = {
-      ...selectedItem,
-      id: uuidv4(),
-      x: selectedItem.x + 32,
-      y: selectedItem.y + 32,
-    };
-    setItems((previous) => [...previous, nextItem]);
-    setSingleSelection(nextItem.id);
+  function copySelectedItemsToClipboard(silent = false) {
+    const selected = getOrderedSelectedItems();
+    if (!selected.length) return false;
+    copiedItemsRef.current = selected.map((item) => ({
+      ...item,
+      points: item.points ? item.points.map((point) => ({ ...point })) : undefined,
+      crop: item.crop ? { ...item.crop } : undefined,
+    }));
+    if (!silent) {
+      setStatusNotice(`已复制 ${selected.length} 个元素。`);
+    }
+    return true;
+  }
+
+  function pasteCopiedItems(silent = false) {
+    const copied = copiedItemsRef.current;
+    if (!copied?.length) return false;
+
+    const pasted = copied.map((item, index) => cloneCanvasItem(item, 32 + index * 10));
+    setItems((previous) => [...previous, ...pasted]);
+    setView((previous) => ({
+      ...previous,
+      selectedItemIds: pasted.map((item) => item.id),
+    }));
+
+    if (!silent) {
+      setStatusNotice(`已粘贴 ${pasted.length} 个元素。`);
+    }
+    return true;
+  }
+
+  function handleCopySelectedItem() {
+    const selected = getOrderedSelectedItems();
+    if (!selected.length) return;
+    if (editingTextItemId) finishTextEditing();
+    if (!copySelectedItemsToClipboard(true)) return;
+    pasteCopiedItems(true);
     setStatusNotice('元素已复制。');
   }
 
   function handleDeleteSelectedItem() {
-    if (!selectedItemId) return;
-    setItems((previous) => previous.filter((item) => item.id !== selectedItemId));
+    const selectedIds = viewRef.current.selectedItemIds;
+    if (!selectedIds.length) return;
+    const selectedIdSet = new Set(selectedIds);
+    setItems((previous) => previous.filter((item) => !selectedIdSet.has(item.id)));
     setSingleSelection(null);
-    if (editingTextItemId === selectedItemId) {
+    if (editingTextItemId && selectedIdSet.has(editingTextItemId)) {
       setEditingTextItemId(null);
       setEditingTextValue('');
     }
-    if (cropState?.itemId === selectedItemId) {
+    if (cropState?.itemId && selectedIdSet.has(cropState.itemId)) {
       setCropState(null);
     }
     setActionPopover(null);
+  }
+
+  async function handleAddSelectedImagesToChat() {
+    const selectedImages = getOrderedSelectedItems().filter((item) => item.type === 'image');
+    if (!selectedImages.length) {
+      setStatusNotice('请先选中图片再添加到对话。');
+      return;
+    }
+
+    const current = chatInputImagesRef.current;
+    const available = Math.max(0, CHAT_IMAGE_LIMIT - current.length);
+    if (available <= 0) {
+      setStatusNotice(`最多添加 ${CHAT_IMAGE_LIMIT} 张参考图。`);
+      return;
+    }
+
+    const candidates = selectedImages.slice(0, CHAT_IMAGE_LIMIT);
+    const exported = await Promise.all(
+      candidates.map(async (item) => ({
+        item,
+        data: await exportImageSource(item),
+      }))
+    );
+
+    const nextImages = [...current];
+    let addedCount = 0;
+    for (const payload of exported) {
+      if (nextImages.length >= CHAT_IMAGE_LIMIT) break;
+      if (nextImages.some((entry) => entry.data === payload.data)) continue;
+      nextImages.push({
+        id: uuidv4(),
+        data: payload.data,
+        source: 'canvas',
+        name: payload.item.prompt || '画布图片',
+      });
+      addedCount += 1;
+    }
+    setChatInputImages(nextImages);
+
+    if (addedCount > 0) {
+      const skipped = selectedImages.length - addedCount;
+      setStatusNotice(
+        skipped > 0
+          ? `已添加 ${addedCount} 张到对话，剩余图片因重复或超出上限未添加。`
+          : `已添加 ${addedCount} 张到对话。`
+      );
+    } else {
+      setStatusNotice('选中的图片已在对话参考图中，或已达到 4 张上限。');
+    }
   }
 
   async function handleDownloadSelectedImage() {
@@ -2119,7 +2286,20 @@ export default function AiVisionWorkspace({
 
       if (isEditableTarget(event.target)) return;
 
-      if ((event.key === 'Backspace' || event.key === 'Delete') && selectedItemId) {
+      const key = event.key.toLowerCase();
+      const withSystemModifier = event.ctrlKey || event.metaKey;
+      if (withSystemModifier && key === 'c') {
+        event.preventDefault();
+        void copySelectedItemsToClipboard();
+        return;
+      }
+      if (withSystemModifier && key === 'v') {
+        event.preventDefault();
+        void pasteCopiedItems();
+        return;
+      }
+
+      if ((event.key === 'Backspace' || event.key === 'Delete') && viewRef.current.selectedItemIds.length > 0) {
         event.preventDefault();
         handleDeleteSelectedItem();
       }
@@ -2127,7 +2307,7 @@ export default function AiVisionWorkspace({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cropState, editingTextItemId, selectedItemId, tool]);
+  }, [cropState, editingTextItemId, tool]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -2141,6 +2321,16 @@ export default function AiVisionWorkspace({
           x: currentInteraction.originX + (event.clientX - currentInteraction.startClientX),
           y: currentInteraction.originY + (event.clientY - currentInteraction.startClientY),
         }));
+        return;
+      }
+
+      if (currentInteraction.type === 'marquee') {
+        const rect = canvas.getBoundingClientRect();
+        const point = getClientToWorldPoint(event.clientX, event.clientY, rect, viewRef.current);
+        currentInteraction.currentClientX = event.clientX;
+        currentInteraction.currentClientY = event.clientY;
+        currentInteraction.currentPoint = point;
+        setMarqueeRect(createMarqueeRect(currentInteraction.startPoint, point));
         return;
       }
 
@@ -2273,6 +2463,36 @@ export default function AiVisionWorkspace({
         }
       }
 
+      if (currentInteraction.type === 'marquee') {
+        const nextMarquee = createMarqueeRect(
+          currentInteraction.startPoint,
+          currentInteraction.currentPoint
+        );
+        const movedDistance = Math.hypot(
+          currentInteraction.currentClientX - currentInteraction.startClientX,
+          currentInteraction.currentClientY - currentInteraction.startClientY
+        );
+        if (movedDistance >= 4) {
+          const hitIds = itemsRef.current
+            .filter((item) => isItemIntersectingMarquee(item, nextMarquee))
+            .map((item) => item.id);
+          setView((previous) => {
+            if (currentInteraction.appendSelection) {
+              const merged = new Set([...previous.selectedItemIds, ...hitIds]);
+              return {
+                ...previous,
+                selectedItemIds: Array.from(merged),
+              };
+            }
+            return {
+              ...previous,
+              selectedItemIds: hitIds,
+            };
+          });
+        }
+        setMarqueeRect(null);
+      }
+
       if (currentInteraction.type === 'line-create') {
         const [startPoint, endPoint] = [currentInteraction.startPoint, currentInteraction.currentPoint];
         if (Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) > 4) {
@@ -2284,6 +2504,7 @@ export default function AiVisionWorkspace({
       }
 
       interactionRef.current = null;
+      setMarqueeRect(null);
       setDrawPreviewPoints(null);
       setLinePreviewItem(null);
     };
@@ -2333,8 +2554,10 @@ export default function AiVisionWorkspace({
           tool={tool}
           setTool={setTool}
           view={view}
+          marqueeRect={marqueeRect}
           drawPreviewPoints={drawPreviewPoints}
           linePreviewItem={linePreviewItem}
+          selectedItemIds={view.selectedItemIds}
           selectedItemId={selectedItemId}
           selectedItem={selectedItem}
           selectedItemToolbarPosition={selectedItemToolbarPosition}
@@ -2392,10 +2615,7 @@ export default function AiVisionWorkspace({
           onRegenerateSubmit={handleRegenerateSubmit}
           onMissingRegenerateConfig={() => setStatusNotice(selectedImageModelConfigurationMessage)}
           onAddSelectedImageToChat={() => {
-            if (!selectedImageItem) return;
-            void exportImageSource(selectedImageItem).then((data) =>
-              addChatReferenceImage(data, selectedImageItem.prompt || '画布图片')
-            );
+            void handleAddSelectedImagesToChat();
           }}
         />
       </div>

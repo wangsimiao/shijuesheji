@@ -53,8 +53,10 @@ interface CanvasStageProps {
   tool: ToolMode;
   setTool: (tool: ToolMode) => void;
   view: ViewState;
+  marqueeRect: { x: number; y: number; width: number; height: number } | null;
   drawPreviewPoints: CanvasPoint[] | null;
   linePreviewItem: CanvasItem | null;
+  selectedItemIds: string[];
   selectedItemId: string | null;
   selectedItem: CanvasItem | null;
   selectedItemToolbarPosition: { left: number; top: number } | null;
@@ -292,8 +294,10 @@ export default function CanvasStage({
   tool,
   setTool,
   view,
+  marqueeRect,
   drawPreviewPoints,
   linePreviewItem,
+  selectedItemIds,
   selectedItemId,
   selectedItem,
   selectedItemToolbarPosition,
@@ -344,6 +348,7 @@ export default function CanvasStage({
   const selectedShapeItem = selectedItem?.type === 'shape' ? selectedItem : null;
   const selectedLineItem = selectedItem?.type === 'line' ? selectedItem : null;
   const selectedDrawingItem = selectedItem?.type === 'drawing' ? selectedItem : null;
+  const selectedItemIdSet = React.useMemo(() => new Set(selectedItemIds), [selectedItemIds]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -381,7 +386,8 @@ export default function CanvasStage({
           }}
         >
           {items.map((item) => {
-            const isSelected = selectedItemId === item.id;
+            const isSelected = selectedItemIdSet.has(item.id);
+            const isPrimarySelected = selectedItemId === item.id;
             const isTextEditing = editingTextItemId === item.id;
             const imageStyle = item.type === 'image' ? getRenderedImageStyle(item.crop) : null;
             const usesRoundedFrame = item.type !== 'text' && item.type !== 'image';
@@ -536,7 +542,7 @@ export default function CanvasStage({
                         }`}
                       />
 
-                      {!cropState && !isTextEditing
+                      {!cropState && !isTextEditing && isPrimarySelected
                         ? resizeHandles.map(({ handle, style }) => (
                             <button
                               key={handle}
@@ -550,7 +556,7 @@ export default function CanvasStage({
                     </>
                   ) : null}
 
-                  {isSelected && item.type === 'line'
+                  {isPrimarySelected && item.type === 'line'
                     ? (item.points || []).slice(0, 2).map((point, index) => (
                         <button
                           key={index}
@@ -570,6 +576,18 @@ export default function CanvasStage({
               </div>
             );
           })}
+
+          {marqueeRect ? (
+            <div
+              className="absolute pointer-events-none border border-dashed border-cyan-300/85 bg-cyan-400/10"
+              style={{
+                left: marqueeRect.x,
+                top: marqueeRect.y,
+                width: marqueeRect.width,
+                height: marqueeRect.height,
+              }}
+            />
+          ) : null}
 
           {drawPreviewPoints && drawPreviewPoints.length > 1 ? (
             (() => {
@@ -778,12 +796,12 @@ export default function CanvasStage({
                 onClick={() => void onDownloadSelectedImage()}
               />
               <ToolbarAction
-                label="对话"
-                icon={MessageSquarePlus}
+                label="删除"
+                icon={Trash2}
                 iconOnly
-                onClick={onAddSelectedImageToChat}
+                onClick={onDeleteSelectedItem}
               />
-              <ToolbarAction label="删除" icon={Trash2} iconOnly onClick={onDeleteSelectedItem} />
+              <ToolbarAction label="添加到对话" icon={MessageSquarePlus} onClick={onAddSelectedImageToChat} />
             </FloatingToolbar>
           </div>
         ) : null}

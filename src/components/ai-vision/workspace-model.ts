@@ -125,6 +125,17 @@ type CropResizeInteraction = {
   aspect: CropAspect;
 };
 
+type MarqueeInteraction = {
+  type: 'marquee';
+  startClientX: number;
+  startClientY: number;
+  currentClientX: number;
+  currentClientY: number;
+  startPoint: CanvasPoint;
+  currentPoint: CanvasPoint;
+  appendSelection: boolean;
+};
+
 export type InteractionState =
   | PanInteraction
   | DragInteraction
@@ -134,6 +145,7 @@ export type InteractionState =
   | LineEndpointInteraction
   | CropMoveInteraction
   | CropResizeInteraction
+  | MarqueeInteraction
   | null;
 
 export type MediaDimensions = {
