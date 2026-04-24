@@ -140,6 +140,7 @@ const DOUBAO_REFERENCE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const DOUBAO_REFERENCE_IMAGE_MAX_PIXELS = 36_000_000;
 const DOUBAO_REFERENCE_IMAGE_MIN_EDGE = 14;
 const DOUBAO_REFERENCE_IMAGE_MAX_RATIO = 16;
+const DOUBAO_MIN_OUTPUT_PIXELS = 3_686_400;
 const PROXY_SAFE_DATA_IMAGE_TOTAL_BYTES = 3 * 1024 * 1024;
 const PROXY_SAFE_DATA_IMAGE_SINGLE_BYTES = 1.2 * 1024 * 1024;
 const PROXY_SAFE_DATA_IMAGE_MIN_BYTES = 160 * 1024;
@@ -625,6 +626,32 @@ async function loadImageDimensionsFromSource(source: string) {
     image.onerror = () => resolve(null);
     image.src = source;
   });
+}
+
+async function resolveSingleReferenceSizeHint(referenceImages: string[]) {
+  if (referenceImages.length !== 1) return undefined;
+  const source = referenceImages[0];
+  if (!source) return undefined;
+  const dimensions = await loadImageDimensionsFromSource(source).catch(() => null);
+  if (!dimensions) return undefined;
+
+  const width = Math.max(1, Math.round(dimensions.width));
+  const height = Math.max(1, Math.round(dimensions.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    return undefined;
+  }
+
+  return `${width}x${height}`;
+}
+
+function normalizeInheritedDoubaoSize(sizeHint?: string) {
+  if (!sizeHint) return undefined;
+  const parsed = parseSizeDimensions(sizeHint);
+  if (!parsed) return undefined;
+  if (parsed.width * parsed.height < DOUBAO_MIN_OUTPUT_PIXELS) {
+    return undefined;
+  }
+  return `${parsed.width}x${parsed.height}`;
 }
 
 function decodeJsonString(raw: string) {
@@ -1453,13 +1480,28 @@ async function generateDoubaoImage(
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
-  const refs = await prepareReferenceImagesForProxy(referenceImages);
+  const originalRefs = referenceImages
+    .filter(Boolean)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const refs = await prepareReferenceImagesForProxy(originalRefs);
   try {
     await validateDoubaoReferenceImages(refs);
     const resolvedModel = (model || config.imageModel).trim();
+    const hasExplicitSize = Boolean(parseExplicitSize(prompt, options?.sizeHint));
+    const inheritedReferenceSize = !hasExplicitSize
+      ? normalizeInheritedDoubaoSize(await resolveSingleReferenceSizeHint(originalRefs))
+      : undefined;
+    const resolvedOptions =
+      inheritedReferenceSize && !options?.sizeHint
+        ? {
+            ...options,
+            sizeHint: inheritedReferenceSize,
+          }
+        : options;
     const payload = await postJSON(
       '/images/generations',
-      buildDoubaoImagePayload(prompt, resolvedModel, refs, options),
+      buildDoubaoImagePayload(prompt, resolvedModel, refs, resolvedOptions),
       config
     );
     const extracted = await extractImagesFromGenerationPayload(payload);
