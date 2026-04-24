@@ -1446,7 +1446,7 @@ export default function AiVisionWorkspace({
   }
 
   function createLoadingItems(prompt: string, count: number) {
-    const safeCount = Math.max(1, Math.min(4, Math.round(count || 1)));
+    const safeCount = Math.max(1, Math.min(GROUP_OUTPUT_MAX_COUNT, Math.round(count || 1)));
     if (safeCount === 1) {
       return [createLoadingItem(prompt)];
     }
@@ -1454,7 +1454,7 @@ export default function AiVisionWorkspace({
     const width = 520;
     const height = 520;
     const gap = 28;
-    const columns = Math.min(2, safeCount);
+    const columns = safeCount > 4 ? 4 : (safeCount > 2 ? 2 : safeCount);
     const start = createAvoidOverlapPosition(
       itemsRef.current,
       viewRef.current,
@@ -1970,14 +1970,36 @@ export default function AiVisionWorkspace({
 
           try {
             const effectiveSizeHint = activeSizeId || call.args.sizeHint;
+            const referenceImages = call.args.referenceImages || attachedImages;
+            let inferredSizeHint = effectiveSizeHint;
+            
+            if (!inferredSizeHint && referenceImages.length > 0) {
+              const firstImage = referenceImages[0];
+              const imageSize = await loadImageDimensions(firstImage).catch(() => null);
+              if (imageSize) {
+                const pixelCount = imageSize.width * imageSize.height;
+                const MIN_PIXELS = 3686400;
+                
+                if (pixelCount < MIN_PIXELS) {
+                  const ratio = imageSize.width / imageSize.height;
+                  const scaleFactor = Math.sqrt(MIN_PIXELS / pixelCount);
+                  const newWidth = Math.round(imageSize.width * scaleFactor);
+                  const newHeight = Math.round(imageSize.height * scaleFactor);
+                  inferredSizeHint = `${newWidth}x${newHeight}`;
+                } else {
+                  inferredSizeHint = `${imageSize.width}x${imageSize.height}`;
+                }
+              }
+            }
+            
             const imageResult = await generateImageAI(
               prompt,
               selectedImageModel,
-              [...(call.args.referenceImages || attachedImages), ...hiddenTemplateReferences],
+              [...referenceImages, ...hiddenTemplateReferences],
               {
                 systemPrompt: activeBrandSystemPrompt,
                 outputCount: expectedOutputCount,
-                sizeHint: effectiveSizeHint,
+                sizeHint: inferredSizeHint,
               }
             );
             const generatedUrls = imageResult.images;

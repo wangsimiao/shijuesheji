@@ -647,20 +647,31 @@ export function createAvoidOverlapPosition(
 ) {
   const base = preferred || getViewportCenterPosition(view, viewport, width, height);
   const step = 36;
-  for (let index = 0; index < 80; index += 1) {
-    const candidate = {
-      x: base.x + index * step,
-      y: base.y + index * step,
-    };
-    const overlaps = items.some((item) => {
-      return (
-        candidate.x < item.x + item.width + 24 &&
-        candidate.x + width + 24 > item.x &&
-        candidate.y < item.y + item.height + 24 &&
-        candidate.y + height + 24 > item.y
-      );
-    });
-    if (!overlaps) return candidate;
+  const directions = [
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: -1 },
+  ];
+  for (let ring = 0; ring < 20; ring += 1) {
+    for (let i = 0; i < ring * 2 + 1 && i < 80; i += 1) {
+      const dirIndex = Math.floor(i / (ring * 2 + 1)) % 4;
+      const { dx, dy } = directions[dirIndex];
+      const stepsInDir = i % (ring * 2 + 1);
+      const candidate = {
+        x: base.x + (ring * step + stepsInDir) * dx,
+        y: base.y + (ring * step + stepsInDir) * dy,
+      };
+      const overlaps = items.some((item) => {
+        return (
+          candidate.x < item.x + item.width + 24 &&
+          candidate.x + width + 24 > item.x &&
+          candidate.y < item.y + item.height + 24 &&
+          candidate.y + height + 24 > item.y
+        );
+      });
+      if (!overlaps) return candidate;
+    }
   }
   return base;
 }
