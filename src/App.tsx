@@ -72,11 +72,13 @@ export default function App() {
     }
 
     return (
-      <AiVisionWorkspace
-        project={activeProject}
-        onBack={() => setCurrentRoute('design')}
-        onOpenProject={openProject}
-      />
+      <React.Fragment key={activeProject.id}>
+        <AiVisionWorkspace
+          project={activeProject}
+          onBack={() => setCurrentRoute('design')}
+          onOpenProject={openProject}
+        />
+      </React.Fragment>
     );
   }
 
