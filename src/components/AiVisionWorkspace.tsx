@@ -119,6 +119,7 @@ function shouldAutoRenameProject(name: string) {
   return (
     normalized.length === 0 ||
     normalized === normalizeProjectName(DEFAULT_BOARD_NAME) ||
+    normalized === 'AI设计画布' ||
     normalized === 'AI设计项目' ||
     normalized === 'AI视觉项目' ||
     normalized === 'AI视觉' ||

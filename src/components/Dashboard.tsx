@@ -347,6 +347,14 @@ function getProjectPreviewMedia(project: Project): ProjectPreviewMedia[] {
   return fromChat.slice(0, 4);
 }
 
+function deriveLaunchProjectName(prompt: string, images: ChatInputImage[]) {
+  const fromPrompt = prompt.replace(/\s+/g, ' ').trim().slice(0, 18);
+  if (fromPrompt) return fromPrompt;
+
+  const imageName = images.find((item) => item.name?.trim())?.name?.replace(/\.[^.]+$/, '').trim();
+  return imageName ? imageName.slice(0, 18) : 'AI 设计画布';
+}
+
 function ProjectPreview({ project }: { project: Project }) {
   const media = getProjectPreviewMedia(project);
 
@@ -539,7 +547,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
     setIsLaunchingProject(true);
     try {
-      const project = await createNewProject('AI 设计画布');
+      const project = await createNewProject(deriveLaunchProjectName(prompt, launchImages));
       const launchIntent: AiVisionLaunchIntent = {
         nonce: crypto.randomUUID(),
         targetProjectId: project.id,
@@ -608,6 +616,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
 
   const renderDesignContent = () => {
     const canLaunch = !isLaunchingProject && (launchPrompt.trim().length > 0 || launchImages.length > 0);
+    const isEmptyDesign = !isProjectsLoading && paginatedProjects.length === 0;
     const displayBrandSpecName =
       launchBrandSpecs.find((item) => item.id === launchBrandSpecId)?.brandName || '\u54c1\u724c\u89c4\u8303';
     const displaySizeLabel =
@@ -625,10 +634,24 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     const activeSizeLabel =
       HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '尺寸';
     return (
-      <div className="h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.2)_1px,transparent_0)] [background-size:24px_24px]">
-        <div className="mx-auto max-w-[1560px]">
-          <header className="relative z-[120] mb-6 px-6 pt-2">
-
+      <div className="relative h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.16)_1px,transparent_0)] [background-size:24px_24px]">
+        <div className="pointer-events-none fixed inset-0 z-0">
+          <img
+            src="/ecommerce-empty-state.png"
+            alt=""
+            className="h-full w-full object-cover opacity-72"
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,18,0.42)_0%,rgba(7,10,18,0.48)_38%,rgba(7,10,18,0.88)_100%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(7,10,18,0)_0%,rgba(7,10,18,0.24)_58%,rgba(7,10,18,0.8)_100%)]" />
+        </div>
+        <div className="relative z-10 mx-auto max-w-[1560px]">
+          <header
+            className={`relative z-[120] px-6 ${
+              isEmptyDesign
+                ? 'mx-auto mb-4 flex min-h-[560px] w-full max-w-[1080px] flex-col justify-center pt-8'
+                : 'mb-6 pt-2'
+            }`}
+          >
             <div className="relative">
               <div className="mx-auto -mt-1 max-w-[860px] text-center">
                 <h2 className="relative mt-1 text-[22px] font-semibold tracking-[0.01em] text-transparent md:text-[24px]" aria-label="众唯 AI 设计">
@@ -649,7 +672,11 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
               </button>
             </div>
 
-            <div className="relative isolate mt-3 flex justify-center overflow-visible py-3">
+            <div
+              className={`relative isolate flex justify-center overflow-visible py-3 ${
+                isEmptyDesign ? 'mt-8' : 'mt-3'
+              }`}
+            >
               <div className="relative z-10 w-full max-w-[860px] rounded-[24px] border border-white/[0.08] bg-[#171b22]/82 p-2.5 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl">
                 <div className="mb-1.5 flex items-center gap-1.5 overflow-x-auto px-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {launchImages.map((item) => (
@@ -910,14 +937,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
           ) : (
             <div className="space-y-5">
               {paginatedProjects.length === 0 ? (
-                <section className="relative min-h-[430px] overflow-hidden rounded-[24px] border border-white/[0.08] bg-[#121621] shadow-[0_18px_44px_rgba(0,0,0,0.24)]">
-                  <img
-                    src="/ecommerce-empty-state.png"
-                    alt=""
-                    className="absolute inset-0 h-full w-full object-cover opacity-80"
-                  />
-                  <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,18,0.08)_0%,rgba(7,10,18,0.22)_42%,rgba(7,10,18,0.78)_100%)]" />
-                </section>
+                null
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
                   {paginatedProjects.map((project) => (
