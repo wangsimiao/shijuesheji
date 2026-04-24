@@ -71,7 +71,6 @@ interface CanvasStageProps {
   onCanvasPointerEnter: () => void;
   onCanvasPointerLeave: () => void;
   onCanvasPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void;
   onItemPointerDown: (event: React.PointerEvent<HTMLDivElement>, item: CanvasItem) => void;
   onItemDoubleClick: (item: CanvasItem) => void;
   onResizeHandlePointerDown: (
@@ -311,7 +310,6 @@ export default function CanvasStage({
   onCanvasPointerEnter,
   onCanvasPointerLeave,
   onCanvasPointerDown,
-  onCanvasWheel,
   onItemPointerDown,
   onItemDoubleClick,
   onResizeHandlePointerDown,
@@ -357,7 +355,6 @@ export default function CanvasStage({
         onPointerEnter={onCanvasPointerEnter}
         onPointerLeave={onCanvasPointerLeave}
         onPointerDown={onCanvasPointerDown}
-        onWheel={onCanvasWheel}
         className="ai-vision-canvas-viewport relative h-full overflow-hidden bg-[#090c13]"
         style={{
           backgroundImage:

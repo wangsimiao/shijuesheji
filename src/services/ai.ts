@@ -44,6 +44,7 @@ export type ChatWithAIOptions = {
   model?: string;
   systemPrompt?: string;
   temperature?: number;
+  forceImageGeneration?: boolean;
 };
 
 export type GenerateVideoTaskResult = {
@@ -77,7 +78,7 @@ type ImageGenerationIntent = {
 };
 
 const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
+const OPENROUTER_DEFAULT_API_BASE_URL = 'https://singapore.zw-ai.com/api/v1/chat/completions';
 const BACKEND_PROXY_PATH = (import.meta.env.VITE_BACKEND_PROXY_PATH || '/api/proxy').trim() || '/api/proxy';
 const ENABLE_BACKEND_PROXY = (import.meta.env.VITE_ENABLE_BACKEND_PROXY || 'true').trim() !== 'false';
 const DEFAULT_CHAT_MODEL = (
@@ -209,9 +210,14 @@ function resolveDoubaoImageConfig(): ImageProviderConfig {
 function resolveOpenRouterImageConfig(): ImageProviderConfig {
   const settings = getModelSettings();
   const provider = settings.providers.openrouter;
+  const rawApiBaseUrl = (provider.apiBaseUrl || '').trim();
+  const preferredApiBaseUrl =
+    !rawApiBaseUrl || /^https:\/\/openrouter\.ai\/api\/v1\/?$/i.test(rawApiBaseUrl)
+      ? OPENROUTER_DEFAULT_API_BASE_URL
+      : rawApiBaseUrl;
   return {
     provider: 'openrouter',
-    apiBaseUrl: (provider.apiBaseUrl || OPENROUTER_DEFAULT_API_BASE_URL).trim() || OPENROUTER_DEFAULT_API_BASE_URL,
+    apiBaseUrl: preferredApiBaseUrl,
     apiKey: (provider.apiKey || '').trim(),
     imageModel: resolveImageModelAlias(provider.imageModel || OPENROUTER_GPT_IMAGE_MODEL) || OPENROUTER_GPT_IMAGE_MODEL,
   };
@@ -279,8 +285,15 @@ function buildUserContent(text: string, attachedImages: string[] = []): string |
   return parts;
 }
 
-function shouldGenerateImage(userMessage: string, attachedImages: string[] = []) {
+function shouldGenerateImage(
+  userMessage: string,
+  attachedImages: string[] = [],
+  forceImageGeneration: boolean = false
+) {
   const text = userMessage.trim().toLowerCase();
+  if (forceImageGeneration) {
+    return Boolean(text || attachedImages.length > 0);
+  }
   if (!text) return false;
   if (IMAGE_INTENT_KEYWORDS_V2.some((keyword) => text.includes(keyword))) return true;
   if (IMAGE_INTENT_KEYWORDS.some((keyword) => text.includes(keyword))) return true;
@@ -422,6 +435,109 @@ function extractAssistantText(payload: any) {
       .join('');
   }
   return '';
+}
+
+function appendUniqueImageUrl(target: string[], candidate: unknown) {
+  if (typeof candidate !== 'string') return;
+  const trimmed = candidate.trim();
+  if (!trimmed) return;
+  if (!target.includes(trimmed)) {
+    target.push(trimmed);
+  }
+}
+
+function collectImageUrlsFromUnknown(input: unknown, target: string[]) {
+  if (!Array.isArray(input)) return;
+  for (const item of input) {
+    if (typeof item === 'string') {
+      appendUniqueImageUrl(target, item);
+      continue;
+    }
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record.b64_json === 'string' && record.b64_json.trim()) {
+      appendUniqueImageUrl(target, `data:image/png;base64,${record.b64_json.trim()}`);
+      continue;
+    }
+    appendUniqueImageUrl(target, record.url);
+    appendUniqueImageUrl(target, record.image);
+    appendUniqueImageUrl(target, record.data);
+    if (record.image_url && typeof record.image_url === 'object') {
+      const nested = record.image_url as Record<string, unknown>;
+      appendUniqueImageUrl(target, nested.url);
+    } else {
+      appendUniqueImageUrl(target, record.image_url);
+    }
+  }
+}
+
+function collectImageUrlsFromContent(content: unknown, target: string[]) {
+  if (!Array.isArray(content)) return;
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue;
+    const record = part as Record<string, unknown>;
+    if (record.image_url && typeof record.image_url === 'object') {
+      const nested = record.image_url as Record<string, unknown>;
+      appendUniqueImageUrl(target, nested.url);
+      continue;
+    }
+    if (typeof record.image_url === 'string') {
+      appendUniqueImageUrl(target, record.image_url);
+      continue;
+    }
+    appendUniqueImageUrl(target, record.url);
+    appendUniqueImageUrl(target, record.data);
+  }
+}
+
+function extractOpenRouterImageUrls(payload: any) {
+  const urls: string[] = [];
+
+  collectImageUrlsFromUnknown(payload?.data, urls);
+  collectImageUrlsFromUnknown(payload?.images, urls);
+
+  const choices = Array.isArray(payload?.choices) ? payload.choices : [];
+  for (const choice of choices) {
+    if (!choice || typeof choice !== 'object') continue;
+    const record = choice as Record<string, unknown>;
+
+    collectImageUrlsFromUnknown(record.images, urls);
+    collectImageUrlsFromUnknown(record.image, urls);
+
+    const message = record.message;
+    if (message && typeof message === 'object') {
+      const messageRecord = message as Record<string, unknown>;
+      collectImageUrlsFromUnknown(messageRecord.images, urls);
+      collectImageUrlsFromUnknown(messageRecord.image, urls);
+      collectImageUrlsFromContent(messageRecord.content, urls);
+      if (messageRecord.image_url && typeof messageRecord.image_url === 'object') {
+        const nested = messageRecord.image_url as Record<string, unknown>;
+        appendUniqueImageUrl(urls, nested.url);
+      } else {
+        appendUniqueImageUrl(urls, messageRecord.image_url);
+      }
+    }
+
+    const delta = record.delta;
+    if (delta && typeof delta === 'object') {
+      const deltaRecord = delta as Record<string, unknown>;
+      collectImageUrlsFromUnknown(deltaRecord.images, urls);
+      collectImageUrlsFromUnknown(deltaRecord.image, urls);
+      collectImageUrlsFromContent(deltaRecord.content, urls);
+      if (deltaRecord.image_url && typeof deltaRecord.image_url === 'object') {
+        const nested = deltaRecord.image_url as Record<string, unknown>;
+        appendUniqueImageUrl(urls, nested.url);
+      } else {
+        appendUniqueImageUrl(urls, deltaRecord.image_url);
+      }
+    }
+  }
+
+  return urls;
+}
+
+function buildForcedImagePrompt(prompt: string) {
+  return `${prompt.trim()}\n\n请直接生成图片并返回至少 1 张图像结果，不要只返回文字说明。`;
 }
 
 function decodeJsonString(raw: string) {
@@ -757,7 +873,7 @@ export async function chatWithAI(
   attachedImages: string[] = [],
   options?: ChatWithAIOptions
 ) {
-  if (shouldGenerateImage(userMessage, attachedImages)) {
+  if (shouldGenerateImage(userMessage, attachedImages, Boolean(options?.forceImageGeneration))) {
     const intent = resolveImageGenerationIntent(userMessage);
     return {
       text: '',
@@ -1150,9 +1266,10 @@ async function generateOpenRouterImage(
   }
 
   const refs = referenceImages.filter(Boolean);
+  const forcedPrompt = buildForcedImagePrompt(prompt);
   const userContent = refs.length
     ? [
-        { type: 'text', text: prompt } as ChatContentPart,
+        { type: 'text', text: forcedPrompt } as ChatContentPart,
         ...refs.map(
           (image) =>
             ({
@@ -1161,7 +1278,7 @@ async function generateOpenRouterImage(
             }) satisfies ChatContentPart
         ),
       ]
-    : prompt;
+    : forcedPrompt;
 
   const messages: Array<{ role: 'system' | 'user'; content: string | ChatContentPart[] }> = [];
   if (options?.systemPrompt?.trim()) {
@@ -1217,13 +1334,10 @@ async function generateOpenRouterImage(
       );
     }
 
-    const imageEntries = Array.isArray(payload?.choices?.[0]?.message?.images)
-      ? payload.choices[0].message.images
-      : [];
+    const imageEntries = extractOpenRouterImageUrls(payload);
     const images: string[] = [];
 
-    for (const imageEntry of imageEntries) {
-      const imageUrl = imageEntry?.image_url?.url;
+    for (const imageUrl of imageEntries) {
       if (typeof imageUrl !== 'string' || !imageUrl.trim()) continue;
       if (imageUrl.startsWith('data:')) {
         images.push(imageUrl);

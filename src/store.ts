@@ -32,7 +32,7 @@ const PRODUCT_MONITOR_RUNS_KEY = 'ecommerce_ai_product_monitor_runs';
 const LEGACY_AI_VISION_STORAGE_KEY = 'ai_visual_workspace_v1';
 const LEGACY_AI_VISION_MIGRATION_KEY = 'ecommerce_ai_ai_visual_migrated_v1';
 const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
+const OPENROUTER_DEFAULT_API_BASE_URL = 'https://singapore.zw-ai.com/api/v1/chat/completions';
 
 const DEFAULT_VIEW: ViewState = {
   x: 100,

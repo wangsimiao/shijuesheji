@@ -352,13 +352,13 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
         {isProjectsLoading ? (
           <Placeholder title="正在加载项目" description="正在从本地项目库读取 AI 设计项目..." />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
             <button
               type="button"
               onClick={() => {
                 void handleCreateProject();
               }}
-              className="group flex aspect-[0.9] flex-col rounded-[20px] border border-white/[0.08] bg-[#161a24] p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1b2030]"
+              className="group flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col rounded-[20px] border border-white/[0.08] bg-[#161a24] p-4 text-left shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1b2030]"
             >
               <div className="flex flex-1 items-center justify-center rounded-[14px] bg-[#0d111a] text-slate-400 transition group-hover:text-slate-100">
                 <div className="flex flex-col items-center gap-3">
@@ -371,7 +371,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
             {projects.map((project) => (
               <article
                 key={project.id}
-                className="group relative flex aspect-[0.9] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1a1f2d]"
+                className="group relative flex w-full max-w-[260px] justify-self-center aspect-[1.02] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#151923] p-3 shadow-[0_16px_34px_rgba(0,0,0,0.24)] transition hover:border-cyan-300/40 hover:bg-[#1a1f2d]"
               >
                 <button
                   type="button"

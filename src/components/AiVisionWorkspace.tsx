@@ -57,6 +57,7 @@ import {
   InteractionState,
   MAX_SCALE,
   MIN_SCALE,
+  OPENROUTER_GPT_IMAGE_MODEL,
   ResizeHandle,
   SceneTab,
   ToolMode,
@@ -1057,7 +1058,7 @@ export default function AiVisionWorkspace({
     return delta;
   }
 
-  function applyCanvasPanFromWheel(event: React.WheelEvent<HTMLDivElement>) {
+  function applyCanvasPanFromWheel(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>) {
     const deltaX = getWheelDeltaInPixels(event.deltaX, event.deltaMode);
     const deltaY = getWheelDeltaInPixels(event.deltaY, event.deltaMode);
 
@@ -1687,28 +1688,39 @@ export default function AiVisionWorkspace({
     };
   }
 
-  function handleCanvasWheel(event: React.WheelEvent<HTMLDivElement>) {
-    if (cropState) return;
-    event.preventDefault();
+  useEffect(() => {
+    if (cropState) return undefined;
+
     const canvas = canvasViewportRef.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
 
-    armCanvasWheelLock();
+    const handleCanvasWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      armCanvasWheelLock();
 
-    if (!event.ctrlKey) {
-      applyCanvasPanFromWheel(event);
-      return;
-    }
+      if (!event.ctrlKey) {
+        applyCanvasPanFromWheel(event);
+        return;
+      }
 
-    const rect = canvas.getBoundingClientRect();
-    const originX = event.clientX - rect.left;
-    const originY = event.clientY - rect.top;
-    updateScaleFromViewportPoint(
-      viewRef.current.scale * (event.deltaY < 0 ? 1.08 : 0.92),
-      originX,
-      originY
-    );
-  }
+      const rect = canvas.getBoundingClientRect();
+      const originX = event.clientX - rect.left;
+      const originY = event.clientY - rect.top;
+      updateScaleFromViewportPoint(
+        viewRef.current.scale * (event.deltaY < 0 ? 1.08 : 0.92),
+        originX,
+        originY
+      );
+    };
+
+    canvas.addEventListener('wheel', handleCanvasWheel, {
+      passive: false,
+    });
+
+    return () => {
+      canvas.removeEventListener('wheel', handleCanvasWheel);
+    };
+  }, [cropState]);
 
   function handleItemDoubleClick(item: CanvasItem) {
     if (item.type !== 'text') return;
@@ -1928,6 +1940,9 @@ export default function AiVisionWorkspace({
 
       const response = await chatWithAI(history, effectiveTextForModel, requestReferenceImages, {
         systemPrompt: activeBrandSystemPrompt,
+        forceImageGeneration:
+          (selectedImageModel || '').trim() === OPENROUTER_GPT_IMAGE_MODEL ||
+          (selectedImageModel || '').trim().toLowerCase() === 'gpt2',
       });
       let nextAssistantMessages: ChatMessage[] | null = null;
 
@@ -2360,7 +2375,6 @@ export default function AiVisionWorkspace({
             setCanvasHover(false);
           }}
           onCanvasPointerDown={handleCanvasPointerDown}
-          onCanvasWheel={handleCanvasWheel}
           onItemPointerDown={handleItemPointerDown}
           onItemDoubleClick={handleItemDoubleClick}
           onResizeHandlePointerDown={handleResizeHandlePointerDown}
