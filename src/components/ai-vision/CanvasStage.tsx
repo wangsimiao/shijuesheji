@@ -381,8 +381,9 @@ export default function CanvasStage({
         <div
           className="absolute left-0 top-0 origin-top-left"
           style={{
-            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+            transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
             transformOrigin: '0 0',
+            willChange: 'transform',
           }}
         >
           {items.map((item) => {

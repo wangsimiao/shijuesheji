@@ -97,6 +97,10 @@ interface AiVisionWorkspaceProps {
   onOpenProject: (project: Project) => void;
 }
 
+const WHEEL_PAN_SENSITIVITY = 0.9;
+const WHEEL_ZOOM_SENSITIVITY = 0.00135;
+const WHEEL_DELTA_DEADZONE = 0.2;
+
 function normalizeProjectName(value: string) {
   return value.replace(/\s+/g, '').trim();
 }
@@ -423,6 +427,20 @@ export default function AiVisionWorkspace({
   const nativeGestureDriverRef = useRef<NativeGestureDriver>(null);
   const lastPinchDistanceRef = useRef<number | null>(null);
   const lastPinchCenterRef = useRef<CanvasPoint | null>(null);
+  const pinchFrameRef = useRef<number | null>(null);
+  const pinchPendingRef = useRef<{
+    previousCenter: CanvasPoint;
+    previousDistance: number;
+    nextCenter: CanvasPoint;
+    nextDistance: number;
+  } | null>(null);
+  const wheelFrameRef = useRef<number | null>(null);
+  const wheelPanDeltaRef = useRef({ x: 0, y: 0 });
+  const wheelZoomDeltaRef = useRef<{
+    originX: number;
+    originY: number;
+    deltaY: number;
+  } | null>(null);
 
   const itemsRef = useRef(items);
   const sessionsRef = useRef(sessions);
@@ -440,6 +458,7 @@ export default function AiVisionWorkspace({
     nativeGestureDriverRef.current = null;
     lastPinchDistanceRef.current = null;
     lastPinchCenterRef.current = null;
+    pinchPendingRef.current = null;
     setIsCanvasGestureLocked(false);
     setCanvasHover(false);
     setCanvasWheelLock(false);
@@ -447,6 +466,110 @@ export default function AiVisionWorkspace({
       window.clearTimeout(wheelLockTimerRef.current);
       wheelLockTimerRef.current = null;
     }
+    if (pinchFrameRef.current !== null) {
+      window.cancelAnimationFrame(pinchFrameRef.current);
+      pinchFrameRef.current = null;
+    }
+    wheelPanDeltaRef.current = { x: 0, y: 0 };
+    wheelZoomDeltaRef.current = null;
+    if (wheelFrameRef.current !== null) {
+      window.cancelAnimationFrame(wheelFrameRef.current);
+      wheelFrameRef.current = null;
+    }
+  }
+
+  function applyPinchTransform(
+    previous: ViewState,
+    previousCenter: CanvasPoint,
+    previousDistance: number,
+    nextCenter: CanvasPoint,
+    nextDistance: number
+  ) {
+    const safeScaleRatio = previousDistance > 0 ? nextDistance / previousDistance : 1;
+    const nextScale = clamp(previous.scale * safeScaleRatio, MIN_SCALE, MAX_SCALE);
+    const worldX = (previousCenter.x - previous.x) / previous.scale;
+    const worldY = (previousCenter.y - previous.y) / previous.scale;
+
+    return {
+      ...previous,
+      scale: nextScale,
+      x: nextCenter.x - worldX * nextScale,
+      y: nextCenter.y - worldY * nextScale,
+    };
+  }
+
+  function schedulePinchViewUpdate(payload: {
+    previousCenter: CanvasPoint;
+    previousDistance: number;
+    nextCenter: CanvasPoint;
+    nextDistance: number;
+  }) {
+    pinchPendingRef.current = payload;
+    if (pinchFrameRef.current !== null) return;
+    pinchFrameRef.current = window.requestAnimationFrame(() => {
+      pinchFrameRef.current = null;
+      const pending = pinchPendingRef.current;
+      pinchPendingRef.current = null;
+      if (!pending) return;
+      setView((previous) =>
+        applyPinchTransform(
+          previous,
+          pending.previousCenter,
+          pending.previousDistance,
+          pending.nextCenter,
+          pending.nextDistance
+        )
+      );
+    });
+  }
+
+  function scheduleWheelViewUpdate() {
+    if (wheelFrameRef.current !== null) return;
+    wheelFrameRef.current = window.requestAnimationFrame(() => {
+      wheelFrameRef.current = null;
+      const panDelta = wheelPanDeltaRef.current;
+      const zoomDelta = wheelZoomDeltaRef.current;
+      wheelPanDeltaRef.current = { x: 0, y: 0 };
+      wheelZoomDeltaRef.current = null;
+
+      if (
+        Math.abs(panDelta.x) < WHEEL_DELTA_DEADZONE &&
+        Math.abs(panDelta.y) < WHEEL_DELTA_DEADZONE &&
+        (!zoomDelta || Math.abs(zoomDelta.deltaY) < WHEEL_DELTA_DEADZONE)
+      ) {
+        return;
+      }
+
+      setView((previous) => {
+        let next = previous;
+        if (
+          Math.abs(panDelta.x) >= WHEEL_DELTA_DEADZONE ||
+          Math.abs(panDelta.y) >= WHEEL_DELTA_DEADZONE
+        ) {
+          next = {
+            ...next,
+            x: next.x - panDelta.x * WHEEL_PAN_SENSITIVITY,
+            y: next.y - panDelta.y * WHEEL_PAN_SENSITIVITY,
+          };
+        }
+
+        if (zoomDelta && Math.abs(zoomDelta.deltaY) >= WHEEL_DELTA_DEADZONE) {
+          const rawScaleRatio = Math.exp(-zoomDelta.deltaY * WHEEL_ZOOM_SENSITIVITY);
+          const scaleRatio = clamp(rawScaleRatio, 0.65, 1.6);
+          const safeScale = clamp(next.scale * scaleRatio, MIN_SCALE, MAX_SCALE);
+          const worldX = (zoomDelta.originX - next.x) / next.scale;
+          const worldY = (zoomDelta.originY - next.y) / next.scale;
+          next = {
+            ...next,
+            scale: safeScale,
+            x: zoomDelta.originX - worldX * safeScale,
+            y: zoomDelta.originY - worldY * safeScale,
+          };
+        }
+
+        return next;
+      });
+    });
   }
 
   useEffect(() => {
@@ -473,6 +596,12 @@ export default function AiVisionWorkspace({
     return () => {
       if (wheelLockTimerRef.current) {
         window.clearTimeout(wheelLockTimerRef.current);
+      }
+      if (pinchFrameRef.current !== null) {
+        window.cancelAnimationFrame(pinchFrameRef.current);
+      }
+      if (wheelFrameRef.current !== null) {
+        window.cancelAnimationFrame(wheelFrameRef.current);
       }
     };
   }, []);
@@ -659,18 +788,11 @@ export default function AiVisionWorkspace({
 
       preventCapturedGesture(event);
 
-      setView((previous) => {
-        const safeScaleRatio = previousDistance > 0 ? nextDistance / previousDistance : 1;
-        const nextScale = clamp(previous.scale * safeScaleRatio, MIN_SCALE, MAX_SCALE);
-        const worldX = (previousCenter.x - previous.x) / previous.scale;
-        const worldY = (previousCenter.y - previous.y) / previous.scale;
-
-        return {
-          ...previous,
-          scale: nextScale,
-          x: nextCenter.x - worldX * nextScale,
-          y: nextCenter.y - worldY * nextScale,
-        };
+      schedulePinchViewUpdate({
+        previousCenter,
+        previousDistance,
+        nextCenter,
+        nextDistance,
       });
 
       lastPinchDistanceRef.current = nextDistance;
@@ -809,18 +931,11 @@ export default function AiVisionWorkspace({
       const previousCenter = lastPinchCenterRef.current || nextCenter;
       const previousDistance = lastPinchDistanceRef.current || nextDistance;
 
-      setView((previous) => {
-        const safeScaleRatio = previousDistance > 0 ? nextDistance / previousDistance : 1;
-        const nextScale = clamp(previous.scale * safeScaleRatio, MIN_SCALE, MAX_SCALE);
-        const worldX = (previousCenter.x - previous.x) / previous.scale;
-        const worldY = (previousCenter.y - previous.y) / previous.scale;
-
-        return {
-          ...previous,
-          scale: nextScale,
-          x: nextCenter.x - worldX * nextScale,
-          y: nextCenter.y - worldY * nextScale,
-        };
+      schedulePinchViewUpdate({
+        previousCenter,
+        previousDistance,
+        nextCenter,
+        nextDistance,
       });
 
       lastPinchDistanceRef.current = nextDistance;
@@ -1113,12 +1228,29 @@ export default function AiVisionWorkspace({
   function applyCanvasPanFromWheel(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>) {
     const deltaX = getWheelDeltaInPixels(event.deltaX, event.deltaMode);
     const deltaY = getWheelDeltaInPixels(event.deltaY, event.deltaMode);
+    if (Math.abs(deltaX) < WHEEL_DELTA_DEADZONE && Math.abs(deltaY) < WHEEL_DELTA_DEADZONE) {
+      return;
+    }
+    wheelPanDeltaRef.current = {
+      x: wheelPanDeltaRef.current.x + deltaX,
+      y: wheelPanDeltaRef.current.y + deltaY,
+    };
+    scheduleWheelViewUpdate();
+  }
 
-    setView((previous) => ({
-      ...previous,
-      x: previous.x - deltaX,
-      y: previous.y - deltaY,
-    }));
+  function applyCanvasZoomFromWheel(deltaY: number, originX: number, originY: number) {
+    if (Math.abs(deltaY) < WHEEL_DELTA_DEADZONE) {
+      return;
+    }
+    const existing = wheelZoomDeltaRef.current;
+    if (existing) {
+      existing.deltaY += deltaY;
+      existing.originX = originX;
+      existing.originY = originY;
+    } else {
+      wheelZoomDeltaRef.current = { deltaY, originX, originY };
+    }
+    scheduleWheelViewUpdate();
   }
 
   function getCanvasViewportCenter() {
@@ -1792,11 +1924,7 @@ export default function AiVisionWorkspace({
       const rect = canvas.getBoundingClientRect();
       const originX = event.clientX - rect.left;
       const originY = event.clientY - rect.top;
-      updateScaleFromViewportPoint(
-        viewRef.current.scale * (event.deltaY < 0 ? 1.08 : 0.92),
-        originX,
-        originY
-      );
+      applyCanvasZoomFromWheel(getWheelDeltaInPixels(event.deltaY, event.deltaMode), originX, originY);
     };
 
     canvas.addEventListener('wheel', handleCanvasWheel, {
@@ -2684,6 +2812,9 @@ export default function AiVisionWorkspace({
         }}
         onUploadReferenceImage={handleUploadReferenceImage}
         onSendMessage={handleSendMessage}
+        onAddAssistantImageToChat={(imageUrl) => {
+          void addChatReferenceImage(imageUrl, 'AI生成图', 'local');
+        }}
         sizeConfigMenuRef={sizeConfigMenuRef}
         activeSizeId={activeSizeId}
         isSizeConfigMenuOpen={isSizeConfigMenuOpen}

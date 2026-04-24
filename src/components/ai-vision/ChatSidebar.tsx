@@ -87,6 +87,7 @@ interface ChatSidebarProps {
   onUploadBrandTemplate: (file: File) => Promise<void>;
   onUploadReferenceImage: (file: File) => Promise<void>;
   onSendMessage: () => Promise<void>;
+  onAddAssistantImageToChat: (imageUrl: string) => void;
   onSelectSize: (sizeId: string | null) => void;
 }
 
@@ -409,6 +410,7 @@ export default function ChatSidebar({
   onUploadBrandTemplate,
   onUploadReferenceImage,
   onSendMessage,
+  onAddAssistantImageToChat,
   onSelectSize,
 }: ChatSidebarProps) {
   const canSend = !isChatLoading && (chatInput.trim().length > 0 || chatInputImages.length > 0);
@@ -461,7 +463,7 @@ export default function ChatSidebar({
                 </button>
 
                 <div className="min-w-0">
-                  <div className="truncate text-[17px] font-semibold tracking-[0.01em] text-white">
+                  <div className="truncate text-[14px] font-medium text-white">
                     {title}
                   </div>
                 </div>
@@ -584,12 +586,20 @@ export default function ChatSidebar({
                                   }`}
                                 >
                                   {assistantImageUrls.map((imageUrl, index) => (
-                                    <img
-                                      key={`${message.id}-result-${index}`}
-                                      src={imageUrl}
-                                      alt={`assistant result ${index + 1}`}
-                                      className="block w-full rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
-                                    />
+                                    <div key={`${message.id}-result-${index}`} className="relative">
+                                      <img
+                                        src={imageUrl}
+                                        alt={`assistant result ${index + 1}`}
+                                        className="block w-full rounded-[18px] object-cover shadow-[0_14px_30px_rgba(0,0,0,0.22)]"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => onAddAssistantImageToChat(imageUrl)}
+                                        className="absolute right-1.5 top-1.5 inline-flex h-7 items-center justify-center rounded-[10px] border border-white/20 bg-black/55 px-2 text-[11px] text-white transition hover:bg-black/70"
+                                      >
+                                        添加到对话
+                                      </button>
+                                    </div>
                                   ))}
                                 </div>
                               ) : null}
