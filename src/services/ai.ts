@@ -78,6 +78,8 @@ type ImageGenerationIntent = {
 
 const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const OPENROUTER_DEFAULT_API_BASE_URL = 'https://openrouter.ai/api/v1';
+const BACKEND_PROXY_PATH = (import.meta.env.VITE_BACKEND_PROXY_PATH || '/api/proxy').trim() || '/api/proxy';
+const ENABLE_BACKEND_PROXY = (import.meta.env.VITE_ENABLE_BACKEND_PROXY || 'true').trim() !== 'false';
 const DEFAULT_CHAT_MODEL = (
   import.meta.env.VITE_DOUBAO_CHAT_MODEL || 'doubao-seed-1-8-251228'
 ).trim();
@@ -153,8 +155,15 @@ export const generateImageTool = {
   },
 };
 
+function resolveImageModelAlias(model: string) {
+  const normalized = model.trim();
+  if (!normalized) return normalized;
+  if (normalized.toLowerCase() === 'gpt2') return OPENROUTER_GPT_IMAGE_MODEL;
+  return normalized;
+}
+
 function isOpenRouterImageModel(model: string) {
-  return model.trim() === OPENROUTER_GPT_IMAGE_MODEL;
+  return resolveImageModelAlias(model) === OPENROUTER_GPT_IMAGE_MODEL;
 }
 
 function resolveDoubaoImageConfig(): ImageProviderConfig {
@@ -175,7 +184,7 @@ function resolveOpenRouterImageConfig(): ImageProviderConfig {
     provider: 'openrouter',
     apiBaseUrl: (provider.apiBaseUrl || OPENROUTER_DEFAULT_API_BASE_URL).trim() || OPENROUTER_DEFAULT_API_BASE_URL,
     apiKey: (provider.apiKey || '').trim(),
-    imageModel: (provider.imageModel || OPENROUTER_GPT_IMAGE_MODEL).trim() || OPENROUTER_GPT_IMAGE_MODEL,
+    imageModel: resolveImageModelAlias(provider.imageModel || OPENROUTER_GPT_IMAGE_MODEL) || OPENROUTER_GPT_IMAGE_MODEL,
   };
 }
 
@@ -258,16 +267,64 @@ function readErrorMessage(payload: any, status: number) {
   return String(message);
 }
 
-async function postJSON(path: string, body: Record<string, unknown>, config: RequestConfig) {
-  const response = await fetch(`${config.apiBaseUrl}${path}`, {
+async function proxyJSON(
+  method: 'POST' | 'GET',
+  path: string,
+  config: RequestConfig,
+  body?: Record<string, unknown>
+) {
+  const requestUrl = `${config.apiBaseUrl}${path}`;
+  const payload = {
+    targetUrl: requestUrl,
+    method,
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+      ...(config.headers || {}),
+    },
+    body,
+  };
+  const response = await fetch(BACKEND_PROXY_PATH, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-      ...(config.headers || {}),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
+  const json = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(readErrorMessage(json, response.status));
+  }
+  return json;
+}
+
+async function postJSON(path: string, body: Record<string, unknown>, config: RequestConfig) {
+  const requestUrl = `${config.apiBaseUrl}${path}`;
+  if (ENABLE_BACKEND_PROXY) {
+    try {
+      return await proxyJSON('POST', path, config, body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (!message.includes('404') && !message.includes('proxy')) {
+        throw error;
+      }
+    }
+  }
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+        ...(config.headers || {}),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown');
+    throw new Error(`网络请求失败（POST ${requestUrl}）：${message}`);
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -277,13 +334,30 @@ async function postJSON(path: string, body: Record<string, unknown>, config: Req
 }
 
 async function getJSON(path: string, config: RequestConfig) {
-  const response = await fetch(`${config.apiBaseUrl}${path}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      ...(config.headers || {}),
-    },
-  });
+  const requestUrl = `${config.apiBaseUrl}${path}`;
+  if (ENABLE_BACKEND_PROXY) {
+    try {
+      return await proxyJSON('GET', path, config);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (!message.includes('404') && !message.includes('proxy')) {
+        throw error;
+      }
+    }
+  }
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        ...(config.headers || {}),
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown');
+    throw new Error(`网络请求失败（GET ${requestUrl}）：${message}`);
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -980,7 +1054,7 @@ async function generateOpenRouterImage(
     const payload = await postJSON(
       '/chat/completions',
       {
-        model: (model || config.imageModel).trim(),
+        model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
         messages,
         modalities: ['image', 'text'],
         stream: false,

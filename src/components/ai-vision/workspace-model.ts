@@ -258,8 +258,11 @@ export function getDefaultSceneBySessionId(
 
 export function normalizeImageModel(value: unknown) {
   if (typeof value !== 'string') return DEFAULT_IMAGE_MODEL_OPTION.value;
-  return IMAGE_MODEL_OPTIONS.some((option) => option.value === value)
-    ? value
+  const normalized = value.trim();
+  if (!normalized) return DEFAULT_IMAGE_MODEL_OPTION.value;
+  if (normalized.toLowerCase() === 'gpt2') return OPENROUTER_GPT_IMAGE_MODEL;
+  return IMAGE_MODEL_OPTIONS.some((option) => option.value === normalized)
+    ? normalized
     : DEFAULT_IMAGE_MODEL_OPTION.value;
 }
 

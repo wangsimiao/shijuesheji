@@ -3,6 +3,7 @@ import {
   DEFAULT_IMAGE_MODEL_OPTION,
   DOUBAO_5_IMAGE_MODEL,
   OPENROUTER_GPT_IMAGE_MODEL,
+  normalizeImageModel,
   parseLegacyWorkspaceSnapshot,
 } from './components/ai-vision/workspace-model';
 import {
@@ -503,18 +504,23 @@ export function getModelSettings(): ModelSettings {
   if (!parsed) return createDefaultModelSettings();
 
   if ('providers' in parsed && parsed.providers) {
+    const normalizedOpenRouterProvider = normalizeProviderSettings(
+      parsed.providers.openrouter,
+      DEFAULT_MODEL_SETTINGS.providers.openrouter
+    );
     return {
       providers: {
         doubao: normalizeProviderSettings(parsed.providers.doubao, DEFAULT_MODEL_SETTINGS.providers.doubao),
-        openrouter: normalizeProviderSettings(
-          parsed.providers.openrouter,
-          DEFAULT_MODEL_SETTINGS.providers.openrouter
-        ),
+        openrouter: {
+          ...normalizedOpenRouterProvider,
+          imageModel: normalizeImageModel(normalizedOpenRouterProvider.imageModel),
+        },
       },
-      defaultAiVisionImageModel:
-        typeof parsed.defaultAiVisionImageModel === 'string' && parsed.defaultAiVisionImageModel.trim()
-          ? parsed.defaultAiVisionImageModel.trim()
-          : DEFAULT_MODEL_SETTINGS.defaultAiVisionImageModel,
+      defaultAiVisionImageModel: normalizeImageModel(
+        typeof parsed.defaultAiVisionImageModel === 'string'
+          ? parsed.defaultAiVisionImageModel
+          : DEFAULT_MODEL_SETTINGS.defaultAiVisionImageModel
+      ),
       retryCount:
         typeof parsed.retryCount === 'number' && Number.isFinite(parsed.retryCount)
           ? parsed.retryCount
