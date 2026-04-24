@@ -789,6 +789,7 @@ export async function chatWithAI(
     {
       model: (options?.model || DEFAULT_CHAT_MODEL).trim(),
       temperature: typeof options?.temperature === 'number' ? options.temperature : 0.7,
+      stream: true,
       messages: [
         {
           role: 'system',
@@ -1179,7 +1180,7 @@ async function generateOpenRouterImage(
       model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
       messages,
       modalities: ['image', 'text'],
-      stream: false,
+      stream: true,
     };
     const baseUrlCandidates = Array.from(
       new Set(
