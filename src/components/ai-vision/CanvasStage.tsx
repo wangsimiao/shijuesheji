@@ -507,7 +507,7 @@ export default function CanvasStage({
                     </svg>
                   ) : null}
 
-                  {item.type === 'loading' ? (
+                  {false && item.type === 'loading' ? (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-[22px] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-6 text-center">
                       <Loader2 className="h-8 w-8 animate-spin text-slate-200" />
                       <div className="space-y-2">
@@ -515,6 +515,32 @@ export default function CanvasStage({
                           {item.prompt || 'AI 正在处理中'}
                         </div>
                         <div className="text-xs leading-5 text-slate-400">{item.content}</div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {item.type === 'loading' ? (
+                    <div className="relative h-full w-full overflow-hidden border border-[#8298bf]/45 bg-[#151b26]">
+                      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(126,150,191,0.26),transparent_48%),radial-gradient(circle_at_82%_78%,rgba(73,88,120,0.22),transparent_44%)]" />
+                      <div className="pointer-events-none absolute inset-0 animate-pulse bg-[linear-gradient(112deg,rgba(37,47,66,0.62)_6%,rgba(82,101,132,0.36)_18%,rgba(37,47,66,0.62)_34%)] [background-size:220%_100%]" />
+                      <div className="relative z-10 flex h-full flex-col justify-between p-5 text-left">
+                        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-[#9fb2d1]/35 bg-[#2a3750]/70 px-3 py-1.5 text-[11px] font-medium tracking-[0.04em] text-[#e7efff]">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          AI 生成中
+                        </div>
+                        <div className="space-y-2.5">
+                          <div className="h-3.5 w-[48%] rounded-full bg-white/[0.16]" />
+                          <div className="h-3.5 w-[76%] rounded-full bg-white/[0.12]" />
+                          <div className="h-3.5 w-[60%] rounded-full bg-white/[0.1]" />
+                        </div>
+                        <div className="rounded-[14px] border border-white/[0.12] bg-black/20 px-3.5 py-3">
+                          <p className="text-[13px] font-medium leading-5 text-slate-100">
+                            {item.prompt || '正在生成图片...'}
+                          </p>
+                          <p className="mt-1.5 text-[11px] leading-5 text-slate-300/90">
+                            {item.content || '请稍候，生成完成后会自动替换此占位。'}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   ) : null}

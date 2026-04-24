@@ -658,34 +658,49 @@ export function createAvoidOverlapPosition(
   preferred?: { x: number; y: number }
 ) {
   const base = preferred || getViewportCenterPosition(view, viewport, width, height);
-  const step = 36;
-  const directions = [
-    { dx: 1, dy: 0 },
-    { dx: 0, dy: 1 },
-    { dx: -1, dy: 0 },
-    { dx: 0, dy: -1 },
-  ];
-  for (let ring = 0; ring < 20; ring += 1) {
-    for (let i = 0; i < ring * 2 + 1 && i < 80; i += 1) {
-      const dirIndex = Math.floor(i / (ring * 2 + 1)) % 4;
-      const { dx, dy } = directions[dirIndex];
-      const stepsInDir = i % (ring * 2 + 1);
-      const candidate = {
-        x: base.x + (ring * step + stepsInDir) * dx,
-        y: base.y + (ring * step + stepsInDir) * dy,
-      };
-      const overlaps = items.some((item) => {
-        return (
-          candidate.x < item.x + item.width + 24 &&
-          candidate.x + width + 24 > item.x &&
-          candidate.y < item.y + item.height + 24 &&
-          candidate.y + height + 24 > item.y
-        );
-      });
-      if (!overlaps) return candidate;
+  const step = 40;
+  const padding = 24;
+  const maxRing = 28;
+  const overlapsAt = (candidate: { x: number; y: number }) =>
+    items.some((item) => {
+      return (
+        candidate.x < item.x + item.width + padding &&
+        candidate.x + width + padding > item.x &&
+        candidate.y < item.y + item.height + padding &&
+        candidate.y + height + padding > item.y
+      );
+    });
+
+  if (!overlapsAt(base)) {
+    return base;
+  }
+
+  for (let ring = 1; ring <= maxRing; ring += 1) {
+    const edge = ring * step;
+
+    for (let offset = -ring; offset <= ring; offset += 1) {
+      const x = base.x + offset * step;
+      const topCandidate = { x, y: base.y - edge };
+      if (!overlapsAt(topCandidate)) return topCandidate;
+
+      const bottomCandidate = { x, y: base.y + edge };
+      if (!overlapsAt(bottomCandidate)) return bottomCandidate;
+    }
+
+    for (let offset = -ring + 1; offset <= ring - 1; offset += 1) {
+      const y = base.y + offset * step;
+      const leftCandidate = { x: base.x - edge, y };
+      if (!overlapsAt(leftCandidate)) return leftCandidate;
+
+      const rightCandidate = { x: base.x + edge, y };
+      if (!overlapsAt(rightCandidate)) return rightCandidate;
     }
   }
-  return base;
+
+  return {
+    x: base.x + maxRing * step,
+    y: base.y + maxRing * step,
+  };
 }
 
 export function getClientToWorldPoint(

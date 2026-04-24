@@ -1730,8 +1730,9 @@ export default function AiVisionWorkspace({
     const height = 520;
     const gap = 28;
     const columns = safeCount > 4 ? 4 : (safeCount > 2 ? 2 : safeCount);
-    const start = createAvoidOverlapPosition(
-      itemsRef.current,
+    const occupiedItems: CanvasItem[] = [...itemsRef.current];
+    const seedPosition = createAvoidOverlapPosition(
+      occupiedItems,
       viewRef.current,
       viewportSizeRef.current,
       width,
@@ -1741,16 +1742,30 @@ export default function AiVisionWorkspace({
     const loadingItems: CanvasItem[] = Array.from({ length: safeCount }).map((_, index) => {
       const row = Math.floor(index / columns);
       const column = index % columns;
-      return {
+      const preferred = {
+        x: seedPosition.x + column * (width + gap),
+        y: seedPosition.y + row * (height + gap),
+      };
+      const position = createAvoidOverlapPosition(
+        occupiedItems,
+        viewRef.current,
+        viewportSizeRef.current,
+        width,
+        height,
+        preferred
+      );
+      const nextItem: CanvasItem = {
         id: uuidv4(),
         type: 'loading',
-        x: start.x + column * (width + gap),
-        y: start.y + row * (height + gap),
+        x: position.x,
+        y: position.y,
         width,
         height,
         content: prompt || '正在生成...',
         prompt,
       };
+      occupiedItems.push(nextItem);
+      return nextItem;
     });
 
     setItems((previous) => [...previous, ...loadingItems]);
