@@ -5,8 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3001 --host=0.0.0.0",
+    "dev:api": "tsx server/index.ts",
     "build": "vite build",
+    "build:api": "tsc -p tsconfig.server.json",
+    "build:all": "npm run build && npm run build:api",
     "preview": "vite preview",
+    "start:api": "node server-dist/server/index.js",
+    "start": "npm run start:api",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },

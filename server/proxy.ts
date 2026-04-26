@@ -1,3 +1,5 @@
+import type { Request, Response } from 'express';
+
 type ProxyPayload = {
   targetUrl?: string;
   method?: string;
@@ -13,7 +15,7 @@ type ChoiceAccumulator = {
   finishReason?: unknown;
 };
 
-function readPayload(req: any): ProxyPayload {
+function readPayload(req: Request): ProxyPayload {
   if (req.body && typeof req.body === 'object') return req.body as ProxyPayload;
   if (typeof req.body === 'string' && req.body.trim()) {
     try {
@@ -49,11 +51,11 @@ function extractTextFromContent(content: unknown): string {
     .join('');
 }
 
-function pushImageUrl(set: Set<string>, value: unknown) {
+function pushImageUrl(target: Set<string>, value: unknown) {
   if (typeof value !== 'string') return;
   const trimmed = value.trim();
   if (!trimmed) return;
-  set.add(trimmed);
+  target.add(trimmed);
 }
 
 function collectImageUrls(input: unknown, target: Set<string>) {
@@ -83,18 +85,14 @@ function collectImageUrls(input: unknown, target: Set<string>) {
     }
     if (record.imageUrl && typeof record.imageUrl === 'object') {
       const nested = record.imageUrl as Record<string, unknown>;
-      if (typeof nested.url === 'string') {
-        pushImageUrl(target, nested.url);
-      }
-    } else if (typeof record.imageUrl === 'string') {
+      pushImageUrl(target, nested.url);
+    } else {
       pushImageUrl(target, record.imageUrl);
     }
     if (record.image_url && typeof record.image_url === 'object') {
       const nested = record.image_url as Record<string, unknown>;
-      if (typeof nested.url === 'string') {
-        pushImageUrl(target, nested.url);
-      }
-    } else if (typeof record.image_url === 'string') {
+      pushImageUrl(target, nested.url);
+    } else {
       pushImageUrl(target, record.image_url);
     }
   }
@@ -146,9 +144,7 @@ function mergeChoiceDelta(target: ChoiceAccumulator, delta: Record<string, unkno
 }
 
 function parseEventStreamPayload(raw: string): Record<string, unknown> | null {
-  if (!/(^|\r?\n)data:\s*/.test(raw)) {
-    return null;
-  }
+  if (!/(^|\r?\n)data:\s*/.test(raw)) return null;
 
   const root: Record<string, unknown> = {};
   const choices = new Map<number, ChoiceAccumulator>();
@@ -187,7 +183,8 @@ function parseEventStreamPayload(raw: string): Record<string, unknown> | null {
     for (const chunkChoice of chunkChoices) {
       if (!chunkChoice || typeof chunkChoice !== 'object') continue;
       const choice = chunkChoice as Record<string, unknown>;
-      const index = typeof choice.index === 'number' && Number.isFinite(choice.index) ? choice.index : 0;
+      const index =
+        typeof choice.index === 'number' && Number.isFinite(choice.index) ? choice.index : 0;
       const target = getChoiceAccumulator(choices, index);
 
       if (choice.message && typeof choice.message === 'object') {
@@ -205,9 +202,7 @@ function parseEventStreamPayload(raw: string): Record<string, unknown> | null {
     }
   }
 
-  if (!hasChunk) {
-    return null;
-  }
+  if (!hasChunk) return null;
 
   if (choices.size > 0) {
     root.choices = Array.from(choices.values())
@@ -232,7 +227,27 @@ function parseEventStreamPayload(raw: string): Record<string, unknown> | null {
   return root;
 }
 
-export default async function handler(req: any, res: any) {
+function sanitizeHeaders(input: ProxyPayload['headers']) {
+  const headers: Record<string, string> = {};
+  if (!input || typeof input !== 'object') return headers;
+
+  for (const [key, value] of Object.entries(input)) {
+    if (!value) continue;
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey === 'host' ||
+      normalizedKey === 'content-length' ||
+      normalizedKey === 'connection'
+    ) {
+      continue;
+    }
+    headers[key] = String(value);
+  }
+
+  return headers;
+}
+
+export async function proxyHandler(req: Request, res: Response) {
   if (req.method !== 'POST') {
     res.status(405).json({ message: 'Method Not Allowed' });
     return;
@@ -246,20 +261,12 @@ export default async function handler(req: any, res: any) {
   }
 
   const upstreamMethod = (payload.method || 'POST').toUpperCase();
-  const headers: Record<string, string> = {};
-  if (payload.headers && typeof payload.headers === 'object') {
-    for (const [key, value] of Object.entries(payload.headers)) {
-      if (!value) continue;
-      const normalizedKey = key.toLowerCase();
-      if (normalizedKey === 'host' || normalizedKey === 'content-length') continue;
-      headers[key] = String(value);
-    }
-  }
-
+  const headers = sanitizeHeaders(payload.headers);
   const requestInit: RequestInit = {
     method: upstreamMethod,
     headers,
   };
+
   if (payload.body !== undefined && upstreamMethod !== 'GET' && upstreamMethod !== 'HEAD') {
     requestInit.body = JSON.stringify(payload.body);
     if (!headers['Content-Type'] && !headers['content-type']) {
@@ -271,12 +278,16 @@ export default async function handler(req: any, res: any) {
     const upstreamResponse = await fetch(targetUrl, requestInit);
     const raw = await upstreamResponse.text();
     const contentType = (upstreamResponse.headers.get('content-type') || '').toLowerCase();
-    let parsed: unknown = null;
+    let parsed: unknown = {};
+
     if (raw) {
       const normalizedSse =
-        contentType.includes('text/event-stream') || raw.includes('\ndata:') || raw.startsWith('data:')
+        contentType.includes('text/event-stream') ||
+        raw.includes('\ndata:') ||
+        raw.startsWith('data:')
           ? parseEventStreamPayload(raw)
           : null;
+
       if (normalizedSse) {
         parsed = normalizedSse;
       } else {
@@ -287,7 +298,8 @@ export default async function handler(req: any, res: any) {
         }
       }
     }
-    res.status(upstreamResponse.status).json(parsed ?? {});
+
+    res.status(upstreamResponse.status).json(parsed);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || 'unknown');
     res.status(502).json({ message: `Proxy request failed: ${message}` });
