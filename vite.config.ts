@@ -318,7 +318,7 @@ function parseEventStreamPayload(raw: string): Record<string, unknown> | null {
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    base: './',
+    base: '/',
     plugins: [
       react(),
       tailwindcss(),

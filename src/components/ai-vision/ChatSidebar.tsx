@@ -456,8 +456,14 @@ function ChatSidebar({
   const resolvedDisplaySizeLabel =
     IMAGE_SIZE_OPTIONS.find((item) => item.value === activeSizeId)?.label || activeSizeId || '尺寸';
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const messageCount = currentSession?.messages.length ?? 0;
   const latestMessageKey = currentSession?.messages[messageCount - 1]?.id ?? '';
+  const selectedModelLabel = getDisplayModelLabel(
+    selectedImageModel,
+    IMAGE_MODEL_OPTIONS.find((option) => option.value === selectedImageModel)?.label || selectedImageModel
+  );
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -465,10 +471,24 @@ function ChatSidebar({
     container.scrollTop = container.scrollHeight;
   }, [currentSessionId, messageCount, latestMessageKey, isChatLoading]);
 
+  useEffect(() => {
+    if (!isModelMenuOpen) return undefined;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (modelMenuRef.current && target && !modelMenuRef.current.contains(target)) {
+        setIsModelMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => window.removeEventListener('mousedown', handlePointerDown);
+  }, [isModelMenuOpen]);
+
   return (
     <aside
-      className={`ai-vision-chat-sidebar relative h-full shrink-0 bg-transparent transition-[width] duration-300 ease-out ${
-        isCollapsed ? 'w-0 overflow-visible' : 'w-[420px] overflow-hidden'
+      className={`ai-vision-chat-sidebar relative z-50 h-full shrink-0 bg-transparent transition-[width] duration-300 ease-out ${
+        isCollapsed ? 'w-0 overflow-visible' : 'w-[420px] overflow-visible'
       }`}
     >
       {isCollapsed ? (
@@ -746,17 +766,49 @@ function ChatSidebar({
                   ) : null}
 
                   <div className="mt-2 flex items-center gap-1.5 px-0.5">
-                    <select
-                      value={selectedImageModel}
-                      onChange={(event) => onSelectModel(event.target.value)}
-                      className="h-9 w-[82px] rounded-[12px] border border-white/[0.04] bg-[#151920] px-2 text-[12px] text-white outline-none"
-                    >
-                      {IMAGE_MODEL_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {getDisplayModelLabel(option.value, option.label)}
-                        </option>
-                      ))}
-                    </select>
+                    <div ref={modelMenuRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsModelMenuOpen((previous) => !previous)}
+                        className="inline-flex h-9 w-[92px] items-center justify-between gap-1 rounded-[12px] border border-white/[0.04] bg-[#151920] px-2.5 text-[12px] text-white transition hover:bg-[#1a1f28]"
+                        aria-label="选择模型"
+                      >
+                        <span className="min-w-0 truncate">{selectedModelLabel}</span>
+                        <ChevronDown
+                          className={`h-3 w-3 shrink-0 transition ${isModelMenuOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+
+                      {isModelMenuOpen ? (
+                        <div className="absolute bottom-full left-0 z-50 mb-3 w-[180px]">
+                          <MenuPanel>
+                            <div className="space-y-1">
+                              {IMAGE_MODEL_OPTIONS.map((option) => {
+                                const label = getDisplayModelLabel(option.value, option.label);
+                                const isSelected = option.value === selectedImageModel;
+                                return (
+                                  <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                      onSelectModel(option.value);
+                                      setIsModelMenuOpen(false);
+                                    }}
+                                    className={`flex h-9 w-full items-center rounded-[10px] px-2.5 text-left text-[12px] transition ${
+                                      isSelected
+                                        ? 'bg-cyan-500/15 text-cyan-100'
+                                        : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                                    }`}
+                                  >
+                                    <span className="truncate">{label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </MenuPanel>
+                        </div>
+                      ) : null}
+                    </div>
 
                     <div ref={brandSpecMenuRef} className="relative">
                       <button
@@ -775,7 +827,7 @@ function ChatSidebar({
                       </button>
 
                       {isBrandSpecMenuOpen ? (
-                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[min(340px,calc(100vw-32px))]">
+                        <div className="absolute bottom-full right-0 z-40 mb-3 w-[min(340px,calc(100vw-32px))]">
                           <BrandSpecMenu
                             brandSpecs={brandSpecs}
                             activeBrandSpecId={activeBrandSpecId}
@@ -806,7 +858,7 @@ function ChatSidebar({
                       </button>
 
                       {isSizeConfigMenuOpen ? (
-                        <div className="absolute bottom-full left-0 z-40 mb-3 w-[240px]">
+                        <div className="absolute bottom-full right-0 z-40 mb-3 w-[min(240px,calc(100vw-32px))]">
                           <SizeConfigMenu
                             activeSizeId={activeSizeId}
                             onSelectSize={onSelectSize}
