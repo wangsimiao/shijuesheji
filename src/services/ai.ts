@@ -66,6 +66,13 @@ export type GenerateImageAIResult = {
   rawCount: number;
 };
 
+export type OpenRouterCreditsStatus = {
+  totalCredits: number;
+  totalUsage: number;
+  remaining: number;
+  updatedAt: number;
+};
+
 export type VideoTaskStatusResult = {
   taskId: string;
   status: string;
@@ -281,6 +288,33 @@ function requireVideoModel() {
 
 export function getResolvedImageModelConfigurationMessage(model: string) {
   return getImageModelConfigurationMessage(model);
+}
+
+function parseFiniteNumber(value: unknown) {
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+export async function getOpenRouterCreditsStatus(): Promise<OpenRouterCreditsStatus> {
+  const config = resolveOpenRouterImageConfig();
+  if (!config.apiKey) {
+    throw new Error('OpenRouter API Key 未配置，请先到模型配置页填写。');
+  }
+
+  const payload = await getJSON('/credits', {
+    apiBaseUrl: OPENROUTER_OFFICIAL_API_BASE_URL,
+    apiKey: config.apiKey,
+  });
+  const data = payload?.data || {};
+  const totalCredits = parseFiniteNumber(data.total_credits);
+  const totalUsage = parseFiniteNumber(data.total_usage);
+
+  return {
+    totalCredits,
+    totalUsage,
+    remaining: totalCredits - totalUsage,
+    updatedAt: Date.now(),
+  };
 }
 
 function normalizeRole(role: string): 'system' | 'user' | 'assistant' {

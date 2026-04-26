@@ -7,6 +7,7 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
+  RefreshCcw,
   Ruler,
   Send,
   Settings2,
@@ -31,6 +32,10 @@ import {
   normalizeImageModel,
   readFileAsDataUrl,
 } from './ai-vision/workspace-model';
+import {
+  getOpenRouterCreditsStatus,
+  OpenRouterCreditsStatus,
+} from '../services/ai';
 
 interface DashboardProps {
   currentRoute: AppRoute;
@@ -90,6 +95,92 @@ function getDisplayModelLabel(value: string, fallbackLabel: string) {
   if (value === OPENROUTER_GEMINI_FLASH_IMAGE_MODEL) return 'Gemini 3.1';
   if (value === 'doubao-seedream-5-0-260128') return '豆包 5.0';
   return fallbackLabel;
+}
+
+function formatUsd(value: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function OpenRouterCreditsBanner({
+  credits,
+  isLoading,
+  error,
+  onRefresh,
+}: {
+  credits: OpenRouterCreditsStatus | null;
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  const remaining = credits?.remaining ?? 0;
+  const isOverdue = Boolean(credits && remaining < 0);
+  const isLow = Boolean(credits && remaining >= 0 && remaining < 1);
+  const statusLabel = isOverdue ? '已欠费' : isLow ? '余额偏低' : '余额正常';
+  const statusClass = isOverdue
+    ? 'border-rose-300/35 bg-rose-500/12 text-rose-50'
+    : isLow
+      ? 'border-amber-300/35 bg-amber-500/12 text-amber-50'
+      : 'border-emerald-300/30 bg-emerald-500/10 text-emerald-50';
+
+  return (
+    <section className="mb-4 rounded-[18px] border border-white/[0.08] bg-[#121722]/88 px-4 py-3 text-sm text-slate-100 shadow-[0_16px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-white">OpenRouter 账户状态</span>
+            {credits ? (
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass}`}>
+                {statusLabel}
+              </span>
+            ) : null}
+            {isLoading ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                正在刷新
+              </span>
+            ) : null}
+          </div>
+
+          {credits ? (
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-300">
+              <span>
+                余额：
+                <strong className={isOverdue ? 'text-rose-200' : 'text-emerald-200'}>
+                  {formatUsd(credits.remaining)}
+                </strong>
+              </span>
+              <span>总额度：{formatUsd(credits.totalCredits)}</span>
+              <span>已使用：{formatUsd(credits.totalUsage)}</span>
+              <span>更新时间：{new Date(credits.updatedAt).toLocaleTimeString('zh-CN')}</span>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-slate-300">
+              {error || '配置 OpenRouter API Key 后，这里会显示余额和欠费提醒。'}
+            </p>
+          )}
+
+          {error && credits ? (
+            <p className="mt-2 text-xs leading-5 text-amber-100">{error}</p>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[12px] border border-white/[0.1] bg-white/[0.06] px-3 text-xs text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          <RefreshCcw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          刷新
+        </button>
+      </div>
+    </section>
+  );
 }
 
 function HomeMenuPanel({ children }: { children: React.ReactNode }) {
@@ -425,6 +516,10 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
   const [isLaunchBrandSpecMenuOpen, setIsLaunchBrandSpecMenuOpen] = useState(false);
   const [isLaunchSizeMenuOpen, setIsLaunchSizeMenuOpen] = useState(false);
   const [isLaunchingProject, setIsLaunchingProject] = useState(false);
+  const [openRouterCredits, setOpenRouterCredits] = useState<OpenRouterCreditsStatus | null>(null);
+  const [openRouterCreditsError, setOpenRouterCreditsError] = useState<string | null>(null);
+  const [isOpenRouterCreditsLoading, setIsOpenRouterCreditsLoading] = useState(false);
+  const [openRouterCreditsRefreshToken, setOpenRouterCreditsRefreshToken] = useState(0);
   const launchUploadInputRef = useRef<HTMLInputElement | null>(null);
   const launchModelMenuRef = useRef<HTMLDivElement | null>(null);
   const launchBrandSpecMenuRef = useRef<HTMLDivElement | null>(null);
@@ -455,6 +550,38 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
       cancelled = true;
     };
   }, [currentRoute, refreshToken]);
+
+  useEffect(() => {
+    if (currentRoute !== 'design') return;
+
+    let cancelled = false;
+
+    async function loadOpenRouterCredits() {
+      setIsOpenRouterCreditsLoading(true);
+      setOpenRouterCreditsError(null);
+      try {
+        const nextCredits = await getOpenRouterCreditsStatus();
+        if (!cancelled) {
+          setOpenRouterCredits(nextCredits);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error || 'unknown');
+        if (!cancelled) {
+          setOpenRouterCreditsError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsOpenRouterCreditsLoading(false);
+        }
+      }
+    }
+
+    void loadOpenRouterCredits();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRoute, openRouterCreditsRefreshToken]);
 
   useEffect(() => {
     if (currentRoute !== 'design') return;
@@ -647,6 +774,12 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(7,10,18,0)_0%,rgba(7,10,18,0.24)_58%,rgba(7,10,18,0.8)_100%)]" />
         </div>
         <div className="relative z-10 mx-auto max-w-[1560px]">
+          <OpenRouterCreditsBanner
+            credits={openRouterCredits}
+            isLoading={isOpenRouterCreditsLoading}
+            error={openRouterCreditsError}
+            onRefresh={() => setOpenRouterCreditsRefreshToken((previous) => previous + 1)}
+          />
           <header
             className={`relative z-[120] px-6 ${
               isEmptyDesign
