@@ -56,6 +56,8 @@ function ProviderCard({
           <input
             value={apiBaseUrl}
             onChange={(event) => onApiBaseUrlChange(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
             className="h-11 rounded-[12px] border border-white/[0.08] bg-[#101116] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
             placeholder="请输入接口地址"
           />
@@ -67,6 +69,9 @@ function ProviderCard({
             type="password"
             value={apiKey}
             onChange={(event) => onApiKeyChange(event.target.value)}
+            autoComplete="new-password"
+            name={`${title}-api-key`}
+            spellCheck={false}
             className="h-11 rounded-[12px] border border-white/[0.08] bg-[#101116] px-4 text-sm text-white outline-none transition focus:border-cyan-300/70"
             placeholder="请输入 API Key"
           />

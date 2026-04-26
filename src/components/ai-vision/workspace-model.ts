@@ -225,16 +225,16 @@ IMAGE_MODEL_OPTIONS.splice(
   0,
   IMAGE_MODEL_OPTIONS.length,
   {
-    value: OPENROUTER_GPT_IMAGE_MODEL,
-    label: 'GPT 5.4 Image 2',
-  },
-  {
     value: OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
     label: 'Gemini 3.1 Flash Image Preview',
   },
   {
+    value: OPENROUTER_GPT_IMAGE_MODEL,
+    label: 'GPT 5.4 Image 2',
+  },
+  {
     value: DOUBAO_5_IMAGE_MODEL,
-    label: '豆包 5.0',
+    label: '\u8c46\u5305 5.0',
   }
 );
 export const DEFAULT_IMAGE_MODEL_OPTION = IMAGE_MODEL_OPTIONS[0];

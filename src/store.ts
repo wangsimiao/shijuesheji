@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   DEFAULT_IMAGE_MODEL_OPTION,
   DOUBAO_5_IMAGE_MODEL,
+  OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
   OPENROUTER_GPT_IMAGE_MODEL,
   normalizeImageModel,
   parseLegacyWorkspaceSnapshot,
@@ -54,7 +55,7 @@ const DEFAULT_MODEL_SETTINGS: ModelSettings = {
       apiKey: '',
     },
   },
-  defaultAiVisionImageModel: DOUBAO_5_IMAGE_MODEL,
+  defaultAiVisionImageModel: OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
   retryCount: 1,
   timeoutMs: 45000,
   updatedAt: Date.now(),
