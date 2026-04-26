@@ -691,6 +691,73 @@ async function resolveSingleReferenceSizeHint(referenceImages: string[]) {
   return `${width}x${height}`;
 }
 
+function resolvePromptReferenceIndex(prompt: string, referenceCount: number) {
+  if (referenceCount <= 0) return -1;
+  if (referenceCount === 1) return 0;
+
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) return 0;
+
+  const lastIndex = referenceCount - 1;
+  if (/(最后|末尾|最后一张|最后那个|最后这张|last|latest)/i.test(normalized)) {
+    return lastIndex;
+  }
+
+  const ordinalPatterns: Array<[RegExp, number]> = [
+    [/(第一张|第1张|第一个|第1个|1号|一号|首张|前一张|左边|左侧|上面|上方|first)/i, 0],
+    [/(第二张|第2张|第二个|第2个|2号|二号|second)/i, 1],
+    [/(第三张|第3张|第三个|第3个|3号|三号|third)/i, 2],
+    [/(第四张|第4张|第四个|第4个|4号|四号|fourth)/i, 3],
+    [/(第五张|第5张|第五个|第5个|5号|五号|fifth)/i, 4],
+  ];
+
+  for (const [pattern, index] of ordinalPatterns) {
+    if (pattern.test(normalized)) {
+      return Math.min(index, lastIndex);
+    }
+  }
+
+  // "这张图/这个图/原图" usually refers to the primary attached image.
+  return 0;
+}
+
+async function resolvePreferredReferenceSizeHint(prompt: string, referenceImages: string[]) {
+  const refs = referenceImages.filter(Boolean).map((item) => item.trim()).filter(Boolean);
+  if (!refs.length) return undefined;
+
+  const preferredIndex = resolvePromptReferenceIndex(prompt, refs.length);
+  const source = refs[preferredIndex] || refs[0];
+  if (!source) return undefined;
+
+  const dimensions = await loadImageDimensionsFromSource(source).catch(() => null);
+  if (!dimensions) return undefined;
+
+  const width = Math.max(1, Math.round(dimensions.width));
+  const height = Math.max(1, Math.round(dimensions.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    return undefined;
+  }
+
+  return `${width}x${height}`;
+}
+
+async function resolveEffectiveImageGenerationIntent(
+  prompt: string,
+  referenceImages: string[],
+  options?: { outputCount?: number; sizeHint?: string }
+) {
+  const intent = resolveImageGenerationIntent(prompt, options);
+  if (intent.explicitSize) return intent;
+
+  const inheritedSize = await resolvePreferredReferenceSizeHint(prompt, referenceImages);
+  if (!inheritedSize) return intent;
+
+  return {
+    ...intent,
+    explicitSize: inheritedSize,
+  };
+}
+
 function normalizeInheritedDoubaoSize(sizeHint?: string) {
   if (!sizeHint) return undefined;
   const parsed = parseSizeDimensions(sizeHint);
@@ -1541,9 +1608,12 @@ async function generateDoubaoImage(
   try {
     await validateDoubaoReferenceImages(refs);
     const resolvedModel = (model || config.imageModel).trim();
-    const hasExplicitSize = Boolean(parseExplicitSize(prompt, options?.sizeHint));
-    const inheritedReferenceSize = !hasExplicitSize
-      ? normalizeInheritedDoubaoSize(await resolveSingleReferenceSizeHint(originalRefs))
+    const baseIntent = resolveImageGenerationIntent(prompt, {
+      outputCount: options?.outputCount,
+      sizeHint: options?.sizeHint,
+    });
+    const inheritedReferenceSize = !baseIntent.explicitSize
+      ? normalizeInheritedDoubaoSize(await resolvePreferredReferenceSizeHint(prompt, originalRefs))
       : undefined;
     const resolvedOptions =
       inheritedReferenceSize && !options?.sizeHint
@@ -1633,12 +1703,14 @@ async function resolveOpenRouterImageConfigOptions(
         explicitDimensions.width,
         explicitDimensions.height
       );
-      imageConfig.image_size = mapDimensionsToOpenRouterImageSize(
-        explicitDimensions.width,
-        explicitDimensions.height
-      );
+      // The UI size presets describe aspect ratio. Keep Gemini on OpenRouter's
+      // default 1K output unless the API flow grows a separate quality control.
+      imageConfig.image_size = '1K';
+    } else {
+      imageConfig.aspect_ratio = '1:1';
+      imageConfig.image_size = '1K';
     }
-    return Object.keys(imageConfig).length ? imageConfig : undefined;
+    return imageConfig;
   }
 
   const explicit = resolveOpenAIGptImageSizeFromHint(intent.explicitSize);
@@ -1713,11 +1785,11 @@ async function generateOpenRouterImage(
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
-  const refs = await prepareReferenceImagesForProxy(referenceImages);
-  const intent = resolveImageGenerationIntent(prompt, {
+  const intent = await resolveEffectiveImageGenerationIntent(prompt, referenceImages, {
     outputCount: options?.outputCount,
     sizeHint: options?.sizeHint,
   });
+  const refs = await prepareReferenceImagesForProxy(referenceImages);
   const targetOutputCount = Math.max(1, intent.outputCount || 1);
   const forcedPrompt = buildForcedImagePromptV2(prompt, targetOutputCount);
   const userContent = refs.length

@@ -32,6 +32,99 @@ function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
   res.end(JSON.stringify(payload));
 }
 
+function getEnvValue(env: Record<string, string>, ...names: string[]) {
+  for (const name of names) {
+    const value = env[name]?.trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function normalizeApiBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, '').replace(/\/chat\/completions\/?$/i, '');
+}
+
+function buildApiRequestUrl(baseUrl: string, pathValue: string) {
+  const normalizedBase = normalizeApiBaseUrl(baseUrl);
+  const normalizedPath = `/${pathValue.replace(/^\/+/, '')}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function sanitizeHeaders(input: unknown) {
+  const headers: Record<string, string> = {};
+  if (!input || typeof input !== 'object') return headers;
+
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!value) continue;
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey === 'host' ||
+      normalizedKey === 'content-length' ||
+      normalizedKey === 'connection'
+    ) {
+      continue;
+    }
+    headers[key] = String(value);
+  }
+
+  return headers;
+}
+
+function resolveTargetPath(targetUrl: string, provider: 'doubao' | 'openrouter') {
+  const parsed = new URL(targetUrl);
+  let pathname = parsed.pathname || '/';
+  if (provider === 'doubao' || provider === 'openrouter') {
+    pathname = pathname.replace(/^\/api\/v\d+(?=\/|$)/i, '');
+  }
+  return `${pathname || '/'}${parsed.search}`;
+}
+
+function getRequestProvider(body: any, targetUrl: string) {
+  if (body?.provider === 'doubao' || body?.provider === 'openrouter') {
+    return body.provider as 'doubao' | 'openrouter';
+  }
+
+  try {
+    const parsed = new URL(targetUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes('volces.com')) return 'doubao';
+    if (host.includes('openrouter.ai') || host.includes('zw-ai.com')) return 'openrouter';
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function applyLocalProviderConfig(env: Record<string, string>, body: any, targetUrl: string) {
+  const provider = getRequestProvider(body, targetUrl);
+  const headers = sanitizeHeaders(body?.headers);
+  if (!provider) {
+    return { targetUrl, headers };
+  }
+
+  const baseUrl =
+    provider === 'doubao'
+      ? getEnvValue(env, 'DOUBAO_API_BASE_URL', 'DOUBAO_BASE_URL')
+      : getEnvValue(env, 'OPENROUTER_API_BASE_URL', 'OPENROUTER_BASE_URL');
+  const apiKey =
+    provider === 'doubao'
+      ? getEnvValue(env, 'DOUBAO_API_KEY', 'ARK_API_KEY')
+      : getEnvValue(env, 'OPENROUTER_API_KEY');
+
+  let resolvedTargetUrl = targetUrl;
+  const isOpenRouterOfficialRequest =
+    provider === 'openrouter' && new URL(targetUrl).hostname.toLowerCase().includes('openrouter.ai');
+  if (baseUrl && !isOpenRouterOfficialRequest) {
+    resolvedTargetUrl = buildApiRequestUrl(baseUrl, resolveTargetPath(targetUrl, provider));
+  }
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return { targetUrl: resolvedTargetUrl, headers };
+}
+
 function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -244,9 +337,10 @@ export default defineConfig(({mode}) => {
               return;
             }
             try {
-              const upstreamResponse = await fetch(targetUrl, {
+              const { targetUrl: resolvedTargetUrl, headers } = applyLocalProviderConfig(env, body, targetUrl);
+              const upstreamResponse = await fetch(resolvedTargetUrl, {
                 method: typeof body?.method === 'string' ? body.method.toUpperCase() : 'POST',
-                headers: typeof body?.headers === 'object' && body.headers ? body.headers : {},
+                headers,
                 body:
                   body?.body !== undefined &&
                   (typeof body?.method !== 'string' || !['GET', 'HEAD'].includes(body.method.toUpperCase()))

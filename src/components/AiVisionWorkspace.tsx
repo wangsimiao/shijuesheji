@@ -370,6 +370,40 @@ function cloneCanvasItem(item: CanvasItem, offset = 0): CanvasItem {
   };
 }
 
+const INTERRUPTED_GENERATION_MESSAGE = '已中断本次生成。';
+
+function resolveInterruptedGenerationState(snapshot: ReturnType<typeof createWorkspaceSnapshotFromProject>) {
+  if (!hasTransientGenerationState(snapshot.items, snapshot.sessions)) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    items: snapshot.items.filter((item) => item.type !== 'loading'),
+    sessions: snapshot.sessions.map((session) => {
+      if (!session.messages.some((message) => message.isImageLoading)) return session;
+      return {
+        ...session,
+        messages: [
+          ...session.messages.filter((message) => !message.isImageLoading),
+          {
+            id: uuidv4(),
+            role: 'assistant' as const,
+            content: INTERRUPTED_GENERATION_MESSAGE,
+          },
+        ],
+      };
+    }),
+  };
+}
+
+function hasTransientGenerationState(items: CanvasItem[], sessions: ChatSession[]) {
+  return (
+    items.some((item) => item.type === 'loading') ||
+    sessions.some((session) => session.messages.some((message) => message.isImageLoading))
+  );
+}
+
 export default function AiVisionWorkspace({
   project,
   onBack,
@@ -377,7 +411,10 @@ export default function AiVisionWorkspace({
   launchIntent = null,
   onConsumeLaunchIntent,
 }: AiVisionWorkspaceProps) {
-  const initialSnapshot = useMemo(() => createWorkspaceSnapshotFromProject(project), [project]);
+  const initialSnapshot = useMemo(
+    () => resolveInterruptedGenerationState(createWorkspaceSnapshotFromProject(project)),
+    [project]
+  );
 
   const [boardName, setBoardName] = useState(initialSnapshot.boardName);
   const [items, setItems] = useState<CanvasItem[]>(initialSnapshot.items);
@@ -1160,6 +1197,10 @@ export default function AiVisionWorkspace({
   }, [canvasHover, canvasWheelLock, cropState]);
 
   useEffect(() => {
+    if (hasTransientGenerationState(items, sessions)) {
+      return undefined;
+    }
+
     let cancelled = false;
 
     void saveProject(
