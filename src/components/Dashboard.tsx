@@ -128,54 +128,48 @@ function OpenRouterCreditsBanner({
       : 'border-emerald-300/30 bg-emerald-500/10 text-emerald-50';
 
   return (
-    <section className="mb-4 rounded-[18px] border border-white/[0.08] bg-[#121722]/88 px-4 py-3 text-sm text-slate-100 shadow-[0_16px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-white">OpenRouter 账户状态</span>
-            {credits ? (
-              <span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusClass}`}>
+    <section className="min-w-0 flex-1 overflow-hidden rounded-[12px] border border-white/[0.08] bg-[#121722]/88 px-3 py-1.5 text-xs text-slate-100 shadow-[0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+      <div className="flex min-h-7 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5 overflow-hidden whitespace-nowrap">
+          <span className="shrink-0 font-medium text-white">OpenRouter 账户状态</span>
+          {credits ? (
+            <>
+              <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] leading-none ${statusClass}`}>
                 {statusLabel}
               </span>
-            ) : null}
-            {isLoading ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在刷新
-              </span>
-            ) : null}
-          </div>
-
-          {credits ? (
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-300">
-              <span>
+              <span className="shrink-0 text-[11px] text-slate-300">
                 余额：
                 <strong className={isOverdue ? 'text-rose-200' : 'text-emerald-200'}>
                   {formatUsd(credits.remaining)}
                 </strong>
               </span>
-              <span>总额度：{formatUsd(credits.totalCredits)}</span>
-              <span>已使用：{formatUsd(credits.totalUsage)}</span>
-              <span>更新时间：{new Date(credits.updatedAt).toLocaleTimeString('zh-CN')}</span>
-            </div>
+              <span className="shrink-0 text-[11px] text-slate-400">总额度：{formatUsd(credits.totalCredits)}</span>
+              <span className="shrink-0 text-[11px] text-slate-400">已使用：{formatUsd(credits.totalUsage)}</span>
+              <span className="shrink-0 text-[11px] text-slate-500">
+                更新：{new Date(credits.updatedAt).toLocaleTimeString('zh-CN')}
+              </span>
+            </>
           ) : (
-            <p className="mt-2 text-xs leading-5 text-slate-300">
-              {error || '配置 OpenRouter API Key 后，这里会显示余额和欠费提醒。'}
-            </p>
+            <span className="min-w-0 truncate text-[11px] text-slate-300">
+              {error || '配置 OpenRouter API Key 后显示余额和欠费提醒。'}
+            </span>
           )}
-
-          {error && credits ? (
-            <p className="mt-2 text-xs leading-5 text-amber-100">{error}</p>
+          {isLoading ? (
+            <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-400">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              正在刷新
+            </span>
           ) : null}
+          {error && credits ? <span className="min-w-0 truncate text-[11px] text-amber-100">{error}</span> : null}
         </div>
 
         <button
           type="button"
           onClick={onRefresh}
           disabled={isLoading}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[12px] border border-white/[0.1] bg-white/[0.06] px-3 text-xs text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-55"
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[9px] border border-white/[0.1] bg-white/[0.06] px-2.5 text-[11px] text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-55"
         >
-          <RefreshCcw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCcw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
           刷新
         </button>
       </div>
@@ -763,7 +757,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
     const activeSizeLabel =
       HOME_IMAGE_SIZE_OPTIONS.find((item) => item.value === launchSizeId)?.label || '尺寸';
     return (
-      <div className="relative h-full overflow-y-auto bg-[#070a12] p-6 [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.16)_1px,transparent_0)] [background-size:24px_24px]">
+      <div className="relative h-full overflow-y-auto bg-[#070a12] [background-image:radial-gradient(circle_at_1px_1px,rgba(100,116,139,0.16)_1px,transparent_0)] [background-size:24px_24px]">
         <div className="pointer-events-none fixed inset-0 z-0">
           <img
             src="/ecommerce-empty-state.png"
@@ -773,13 +767,23 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,18,0.42)_0%,rgba(7,10,18,0.48)_38%,rgba(7,10,18,0.88)_100%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(7,10,18,0)_0%,rgba(7,10,18,0.24)_58%,rgba(7,10,18,0.8)_100%)]" />
         </div>
-        <div className="relative z-10 mx-auto max-w-[1560px]">
+        <div className="relative z-20 flex items-center gap-2 px-3 py-1.5">
           <OpenRouterCreditsBanner
             credits={openRouterCredits}
             isLoading={isOpenRouterCreditsLoading}
             error={openRouterCreditsError}
             onRefresh={() => setOpenRouterCreditsRefreshToken((previous) => previous + 1)}
           />
+          <button
+            type="button"
+            onClick={() => onNavigate('admin')}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] border border-white/[0.12] bg-white/[0.06] px-3 text-xs text-slate-100 transition hover:bg-white/[0.12]"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            模型配置
+          </button>
+        </div>
+        <div className="relative z-10 mx-auto max-w-[1560px] px-6 pb-6">
           <header
             className={`relative z-[120] px-6 ${
               isEmptyDesign
@@ -797,14 +801,7 @@ export default function Dashboard({ currentRoute, onNavigate, onOpenProject }: D
                   发起对话，立即体验众唯 1.3
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => onNavigate('admin')}
-                className="mt-3 inline-flex h-10 items-center gap-2 rounded-[12px] border border-white/[0.12] bg-white/[0.06] px-4 text-sm text-slate-100 transition hover:bg-white/[0.12] md:absolute md:right-0 md:top-0 md:mt-0"
-              >
-                <Settings2 className="h-4 w-4" />
-                模型配置
-              </button>
+
             </div>
 
             <div
