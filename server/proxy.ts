@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express';
+import fetch from 'node-fetch';
+import type { RequestInit } from 'node-fetch';
 
 type ProxyPayload = {
   targetUrl?: string;
