@@ -37,6 +37,7 @@ type ImageProviderConfig = {
 };
 
 type RequestConfig = {
+  provider?: ImageProviderConfig['provider'];
   apiBaseUrl: string;
   apiKey: string;
   headers?: Record<string, string>;
@@ -253,22 +254,23 @@ function resolveImageProviderConfig(model: string): ImageProviderConfig {
 function resolveDoubaoChatConfig() {
   const config = resolveDoubaoImageConfig();
   return {
+    provider: config.provider,
     apiBaseUrl: config.apiBaseUrl,
     apiKey: config.apiKey,
   };
 }
 
 export function isDoubaoConfigured() {
-  return Boolean(resolveDoubaoChatConfig().apiKey);
+  return ENABLE_BACKEND_PROXY || Boolean(resolveDoubaoChatConfig().apiKey);
 }
 
 export function isDoubaoVideoConfigured() {
-  return Boolean(resolveDoubaoChatConfig().apiKey && DEFAULT_VIDEO_MODEL());
+  return Boolean((ENABLE_BACKEND_PROXY || resolveDoubaoChatConfig().apiKey) && DEFAULT_VIDEO_MODEL());
 }
 
 export function isImageModelConfigured(model: string) {
   const config = resolveImageProviderConfig(model || DOUBAO_5_IMAGE_MODEL);
-  return Boolean(config.apiBaseUrl && config.apiKey);
+  return Boolean(config.apiBaseUrl && (ENABLE_BACKEND_PROXY || config.apiKey));
 }
 
 export function getImageModelConfigurationMessage(model: string) {
@@ -297,11 +299,12 @@ function parseFiniteNumber(value: unknown) {
 
 export async function getOpenRouterCreditsStatus(): Promise<OpenRouterCreditsStatus> {
   const config = resolveOpenRouterImageConfig();
-  if (!config.apiKey) {
-    throw new Error('OpenRouter API Key 未配置，请先到模型配置页填写。');
+  if (!ENABLE_BACKEND_PROXY && !config.apiKey) {
+    throw new Error('OpenRouter API Key ???????????????');
   }
 
   const payload = await getJSON('/credits', {
+    provider: 'openrouter',
     apiBaseUrl: OPENROUTER_OFFICIAL_API_BASE_URL,
     apiKey: config.apiKey,
   });
@@ -392,6 +395,7 @@ async function proxyJSON(
   const payload = {
     targetUrl: requestUrl,
     method,
+    provider: config.provider,
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
@@ -1055,7 +1059,7 @@ export async function chatWithAI(
   }
 
   const doubaoConfig = resolveDoubaoChatConfig();
-  if (!doubaoConfig.apiKey) {
+  if (!ENABLE_BACKEND_PROXY && !doubaoConfig.apiKey) {
     throw new Error('未配置豆包对话能力，请在模型设置页完成豆包 API Key 配置。');
   }
 
@@ -1525,7 +1529,7 @@ async function generateDoubaoImage(
   options?: GenerateImageAIOptions
 ): Promise<GenerateImageAIResult> {
   const config = resolveDoubaoImageConfig();
-  if (!config.apiKey) {
+  if (!ENABLE_BACKEND_PROXY && !config.apiKey) {
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 
@@ -1676,6 +1680,7 @@ async function requestOpenRouterImagePayload(
   for (const baseUrl of baseUrlCandidates) {
     try {
       payload = await postJSON('/chat/completions', requestBody, {
+        provider: 'openrouter',
         apiBaseUrl: baseUrl,
         apiKey: config.apiKey,
         headers: getOpenRouterHeaders(),
@@ -1704,7 +1709,7 @@ async function generateOpenRouterImage(
   options?: GenerateImageAIOptions
 ): Promise<GenerateImageAIResult> {
   const config = resolveOpenRouterImageConfig();
-  if (!config.apiKey) {
+  if (!ENABLE_BACKEND_PROXY && !config.apiKey) {
     throw new Error(getResolvedImageModelConfigurationMessage(model));
   }
 

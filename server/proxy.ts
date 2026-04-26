@@ -7,6 +7,7 @@ type ProxyPayload = {
   method?: string;
   headers?: Record<string, string>;
   body?: unknown;
+  provider?: 'doubao' | 'openrouter';
 };
 
 type ChoiceAccumulator = {
@@ -36,6 +37,88 @@ function isValidTargetUrl(url: string) {
   } catch {
     return false;
   }
+}
+
+function getEnvValue(...names: string[]) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function normalizeApiBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, '').replace(/\/chat\/completions\/?$/i, '');
+}
+
+function buildApiRequestUrl(baseUrl: string, path: string) {
+  const normalizedBase = normalizeApiBaseUrl(baseUrl);
+  const normalizedPath = `/${path.replace(/^\/+/, '')}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function getRequestProvider(payload: ProxyPayload, targetUrl: string) {
+  if (payload.provider === 'doubao' || payload.provider === 'openrouter') {
+    return payload.provider;
+  }
+
+  try {
+    const parsed = new URL(targetUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes('volces.com')) return 'doubao';
+    if (host.includes('openrouter.ai') || host.includes('zw-ai.com')) return 'openrouter';
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function resolveTargetPath(targetUrl: string, provider: 'doubao' | 'openrouter') {
+  const parsed = new URL(targetUrl);
+  let pathname = parsed.pathname || '/';
+  if (provider === 'doubao') {
+    pathname = pathname.replace(/^\/api\/v\d+(?=\/|$)/i, '');
+  }
+  if (provider === 'openrouter') {
+    pathname = pathname.replace(/^\/api\/v\d+(?=\/|$)/i, '');
+  }
+  return `${pathname || '/'}${parsed.search}`;
+}
+
+function applyServerProviderConfig(payload: ProxyPayload, targetUrl: string) {
+  const provider = getRequestProvider(payload, targetUrl);
+  if (!provider) {
+    return {
+      targetUrl,
+      headers: sanitizeHeaders(payload.headers),
+    };
+  }
+
+  const headers = sanitizeHeaders(payload.headers);
+  const baseUrl =
+    provider === 'doubao'
+      ? getEnvValue('DOUBAO_API_BASE_URL', 'DOUBAO_BASE_URL')
+      : getEnvValue('OPENROUTER_API_BASE_URL', 'OPENROUTER_BASE_URL');
+  const apiKey =
+    provider === 'doubao'
+      ? getEnvValue('DOUBAO_API_KEY', 'ARK_API_KEY')
+      : getEnvValue('OPENROUTER_API_KEY');
+
+  let resolvedTargetUrl = targetUrl;
+  const isOpenRouterOfficialRequest =
+    provider === 'openrouter' && new URL(targetUrl).hostname.toLowerCase().includes('openrouter.ai');
+  if (baseUrl && !isOpenRouterOfficialRequest) {
+    resolvedTargetUrl = buildApiRequestUrl(baseUrl, resolveTargetPath(targetUrl, provider));
+  }
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return {
+    targetUrl: resolvedTargetUrl,
+    headers,
+  };
 }
 
 function extractTextFromContent(content: unknown): string {
@@ -256,14 +339,14 @@ export async function proxyHandler(req: Request, res: Response) {
   }
 
   const payload = readPayload(req);
-  const targetUrl = typeof payload.targetUrl === 'string' ? payload.targetUrl.trim() : '';
-  if (!targetUrl || !isValidTargetUrl(targetUrl)) {
+  const rawTargetUrl = typeof payload.targetUrl === 'string' ? payload.targetUrl.trim() : '';
+  if (!rawTargetUrl || !isValidTargetUrl(rawTargetUrl)) {
     res.status(400).json({ message: 'Invalid targetUrl' });
     return;
   }
 
   const upstreamMethod = (payload.method || 'POST').toUpperCase();
-  const headers = sanitizeHeaders(payload.headers);
+  const { targetUrl, headers } = applyServerProviderConfig(payload, rawTargetUrl);
   const requestInit: RequestInit = {
     method: upstreamMethod,
     headers,
