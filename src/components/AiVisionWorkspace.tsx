@@ -58,7 +58,6 @@ import {
   InteractionState,
   MAX_SCALE,
   MIN_SCALE,
-  OPENROUTER_GPT_IMAGE_MODEL,
   ResizeHandle,
   SceneTab,
   ToolMode,
@@ -82,6 +81,7 @@ import {
   getDefaultSceneBySessionId,
   getDisplayFilename,
   getErrorMessage,
+  isOpenRouterImageModelId,
   isEditableTarget,
   loadImageDimensions,
   loadVideoDimensions,
@@ -2399,9 +2399,7 @@ export default function AiVisionWorkspace({
 
       const response = await chatWithAI(history, effectiveTextForModel, requestReferenceImages, {
         systemPrompt: systemPromptForRequest,
-        forceImageGeneration:
-          (modelForRequest || '').trim() === OPENROUTER_GPT_IMAGE_MODEL ||
-          (modelForRequest || '').trim().toLowerCase() === 'gpt2',
+        forceImageGeneration: isOpenRouterImageModelId(modelForRequest || ''),
       });
       let nextAssistantMessages: ChatMessage[] | null = null;
 

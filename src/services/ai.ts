@@ -3,7 +3,9 @@
 import { getModelSettings } from '../store';
 import {
   DOUBAO_5_IMAGE_MODEL,
+  OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
   OPENROUTER_GPT_IMAGE_MODEL,
+  OPENROUTER_IMAGE_MODELS,
 } from '../components/ai-vision/workspace-model';
 
 type ChatHistoryMessage = {
@@ -196,11 +198,18 @@ function resolveImageModelAlias(model: string) {
   const normalized = model.trim();
   if (!normalized) return normalized;
   if (normalized.toLowerCase() === 'gpt2') return OPENROUTER_GPT_IMAGE_MODEL;
+  if (normalized.toLowerCase() === 'gemini') return OPENROUTER_GEMINI_FLASH_IMAGE_MODEL;
+  if (normalized.toLowerCase() === 'nano-banana-2') return OPENROUTER_GEMINI_FLASH_IMAGE_MODEL;
   return normalized;
 }
 
 function isOpenRouterImageModel(model: string) {
-  return resolveImageModelAlias(model) === OPENROUTER_GPT_IMAGE_MODEL;
+  const normalized = resolveImageModelAlias(model);
+  return OPENROUTER_IMAGE_MODELS.some((item) => item === normalized);
+}
+
+function isOpenRouterGeminiFlashImageModel(model: string) {
+  return resolveImageModelAlias(model) === OPENROUTER_GEMINI_FLASH_IMAGE_MODEL;
 }
 
 function resolveDoubaoImageConfig(): ImageProviderConfig {
@@ -1530,11 +1539,70 @@ async function generateDoubaoImage(
   }
 }
 
+function mapDimensionsToOpenRouterAspectRatio(width: number, height: number) {
+  const supportedRatios = [
+    '1:1',
+    '2:3',
+    '3:2',
+    '3:4',
+    '4:3',
+    '4:5',
+    '5:4',
+    '9:16',
+    '16:9',
+    '21:9',
+    '1:4',
+    '4:1',
+    '1:8',
+    '8:1',
+  ];
+  const ratio = width / height;
+  let best = '1:1';
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const option of supportedRatios) {
+    const [rawWidth, rawHeight] = option.split(':');
+    const optionRatio = Number(rawWidth) / Number(rawHeight);
+    const distance = Math.abs(Math.log(ratio / optionRatio));
+    if (distance < bestDistance) {
+      best = option;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
+}
+
+function mapDimensionsToOpenRouterImageSize(width: number, height: number) {
+  const maxEdge = Math.max(width, height);
+  if (maxEdge >= 3500) return '4K';
+  if (maxEdge >= 1536) return '2K';
+  if (maxEdge <= 768) return '0.5K';
+  return '1K';
+}
+
 async function resolveOpenRouterImageConfigOptions(
   intent: ImageGenerationIntent,
-  referenceImages: string[]
+  referenceImages: string[],
+  model: string
 ) {
   const imageConfig: Record<string, unknown> = {};
+
+  if (isOpenRouterGeminiFlashImageModel(model)) {
+    const explicitDimensions = intent.explicitSize ? parseSizeDimensions(intent.explicitSize) : null;
+    if (explicitDimensions) {
+      imageConfig.aspect_ratio = mapDimensionsToOpenRouterAspectRatio(
+        explicitDimensions.width,
+        explicitDimensions.height
+      );
+      imageConfig.image_size = mapDimensionsToOpenRouterImageSize(
+        explicitDimensions.width,
+        explicitDimensions.height
+      );
+    }
+    return Object.keys(imageConfig).length ? imageConfig : undefined;
+  }
+
   const explicit = resolveOpenAIGptImageSizeFromHint(intent.explicitSize);
   if (explicit) {
     imageConfig.size = explicit;
@@ -1639,9 +1707,10 @@ async function generateOpenRouterImage(
   });
 
   try {
-    const imageConfig = await resolveOpenRouterImageConfigOptions(intent, refs);
+    const resolvedModel = resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL;
+    const imageConfig = await resolveOpenRouterImageConfigOptions(intent, refs, resolvedModel);
     const requestBody: Record<string, unknown> = {
-      model: resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL,
+      model: resolvedModel,
       messages,
       modalities: ['image', 'text'],
       stream: false,

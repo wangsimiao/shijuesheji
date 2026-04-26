@@ -16,6 +16,7 @@ import {
   CHAT_IMAGE_LIMIT,
   DOUBAO_5_IMAGE_MODEL,
   IMAGE_MODEL_OPTIONS,
+  OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
   OPENROUTER_GPT_IMAGE_MODEL,
   SceneTab,
   WORKSPACE_HEADER_HEIGHT,
@@ -92,6 +93,7 @@ function MenuPanel({ children }: { children: React.ReactNode }) {
 
 function getDisplayModelLabel(value: string, fallbackLabel: string) {
   if (value === OPENROUTER_GPT_IMAGE_MODEL) return 'gpt2';
+  if (value === OPENROUTER_GEMINI_FLASH_IMAGE_MODEL) return 'Gemini 3.1';
   if (value === DOUBAO_5_IMAGE_MODEL) return '豆包 5.0';
   return fallbackLabel;
 }

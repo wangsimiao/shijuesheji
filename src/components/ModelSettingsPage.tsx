@@ -8,6 +8,7 @@ import {
 } from '../store';
 import {
   DOUBAO_5_IMAGE_MODEL,
+  OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
   OPENROUTER_GPT_IMAGE_MODEL,
 } from './ai-vision/workspace-model';
 
@@ -17,6 +18,7 @@ type ModelSettingsPageProps = {
 
 const AI_VISION_IMAGE_MODEL_OPTIONS = [
   { value: OPENROUTER_GPT_IMAGE_MODEL, label: 'gpt2（GPT 5.4 Image 2）' },
+  { value: OPENROUTER_GEMINI_FLASH_IMAGE_MODEL, label: 'Gemini 3.1 Flash Image Preview' },
   { value: DOUBAO_5_IMAGE_MODEL, label: '豆包 5.0' },
 ];
 
@@ -108,7 +110,12 @@ export default function ModelSettingsPage({ onBack }: ModelSettingsPageProps) {
     []
   );
   const openRouterOptions = useMemo(
-    () => AI_VISION_IMAGE_MODEL_OPTIONS.filter((option) => option.value === OPENROUTER_GPT_IMAGE_MODEL),
+    () =>
+      AI_VISION_IMAGE_MODEL_OPTIONS.filter(
+        (option) =>
+          option.value === OPENROUTER_GPT_IMAGE_MODEL ||
+          option.value === OPENROUTER_GEMINI_FLASH_IMAGE_MODEL
+      ),
     []
   );
 

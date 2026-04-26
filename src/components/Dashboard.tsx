@@ -27,6 +27,7 @@ import {
 import {
   CHAT_IMAGE_LIMIT,
   IMAGE_MODEL_OPTIONS,
+  OPENROUTER_GEMINI_FLASH_IMAGE_MODEL,
   normalizeImageModel,
   readFileAsDataUrl,
 } from './ai-vision/workspace-model';
@@ -86,6 +87,7 @@ function DesignProjectsLoading() {
 
 function getDisplayModelLabel(value: string, fallbackLabel: string) {
   if (value === 'openai/gpt-5.4-image-2') return 'gpt2';
+  if (value === OPENROUTER_GEMINI_FLASH_IMAGE_MODEL) return 'Gemini 3.1';
   if (value === 'doubao-seedream-5-0-260128') return '豆包 5.0';
   return fallbackLabel;
 }
