@@ -87,8 +87,6 @@ type ImageGenerationIntent = {
   explicitSize?: string;
 };
 
-type OpenAIGptImageSize = '1024x1024' | '1024x1536' | '1536x1024' | 'auto';
-
 const DOUBAO_DEFAULT_API_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const OPENROUTER_DEFAULT_API_BASE_URL = 'https://singapore.zw-ai.com/api/v1/chat/completions';
 const OPENROUTER_OFFICIAL_API_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -171,6 +169,7 @@ const SIZE_RATIO_MAP: Record<string, string> = {
   '21:9': '2960x1269',
   '9:21': '1269x2960',
 };
+const DEFAULT_IMAGE_SIZE = SIZE_RATIO_MAP['1:1'];
 
 export const generateImageTool = {
   name: 'generateImage',
@@ -636,31 +635,6 @@ function parseSizeDimensions(value: string) {
   return { width, height };
 }
 
-function mapDimensionsToOpenAIGptImageSize(width: number, height: number): OpenAIGptImageSize {
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return 'auto';
-  }
-  const ratio = width / height;
-  if (ratio >= 1.15) return '1536x1024';
-  if (ratio <= 0.87) return '1024x1536';
-  return '1024x1024';
-}
-
-function resolveOpenAIGptImageSizeFromHint(explicitSize?: string): OpenAIGptImageSize | undefined {
-  if (!explicitSize) return undefined;
-  const normalized = explicitSize.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (normalized === 'auto') return 'auto';
-  if (normalized === '1024x1024' || normalized === '1024x1536' || normalized === '1536x1024') {
-    return normalized;
-  }
-  const size = parseSizeDimensions(normalized);
-  if (size) {
-    return mapDimensionsToOpenAIGptImageSize(size.width, size.height);
-  }
-  return undefined;
-}
-
 async function loadImageDimensionsFromSource(source: string) {
   if (typeof Image === 'undefined') return null;
   return new Promise<{ width: number; height: number } | null>((resolve) => {
@@ -741,6 +715,17 @@ async function resolvePreferredReferenceSizeHint(prompt: string, referenceImages
   return `${width}x${height}`;
 }
 
+function shouldInheritReferenceSize(prompt: string, referenceImages: string[]) {
+  if (!referenceImages.length) return false;
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    /修改|改图|改一下|改成|换成|替换|重绘|局部|修图|处理这张|处理这个|保持|保留|不要改变|不变/i.test(normalized) ||
+    /原图|参考图|这张图|这个图|这图|图片里|图里|基于这张|基于这个|基于原图|根据这张|根据这个|按照这张|按照这个|照着|参考|图生图/i.test(normalized) ||
+    /based on this|use this|this image|reference image|original image|same size|original size|keep.*size|edit|modify|replace|change this|inpaint/i.test(normalized)
+  );
+}
+
 async function resolveEffectiveImageGenerationIntent(
   prompt: string,
   referenceImages: string[],
@@ -749,8 +734,20 @@ async function resolveEffectiveImageGenerationIntent(
   const intent = resolveImageGenerationIntent(prompt, options);
   if (intent.explicitSize) return intent;
 
+  if (!shouldInheritReferenceSize(prompt, referenceImages)) {
+    return {
+      ...intent,
+      explicitSize: DEFAULT_IMAGE_SIZE,
+    };
+  }
+
   const inheritedSize = await resolvePreferredReferenceSizeHint(prompt, referenceImages);
-  if (!inheritedSize) return intent;
+  if (!inheritedSize) {
+    return {
+      ...intent,
+      explicitSize: DEFAULT_IMAGE_SIZE,
+    };
+  }
 
   return {
     ...intent,
@@ -1612,14 +1609,17 @@ async function generateDoubaoImage(
       outputCount: options?.outputCount,
       sizeHint: options?.sizeHint,
     });
-    const inheritedReferenceSize = !baseIntent.explicitSize
-      ? normalizeInheritedDoubaoSize(await resolvePreferredReferenceSizeHint(prompt, originalRefs))
-      : undefined;
+    let fallbackSize: string | undefined;
+    if (!baseIntent.explicitSize) {
+      fallbackSize = shouldInheritReferenceSize(prompt, originalRefs)
+        ? normalizeInheritedDoubaoSize(await resolvePreferredReferenceSizeHint(prompt, originalRefs)) || DEFAULT_IMAGE_SIZE
+        : DEFAULT_IMAGE_SIZE;
+    }
     const resolvedOptions =
-      inheritedReferenceSize && !options?.sizeHint
+      fallbackSize && !options?.sizeHint
         ? {
             ...options,
-            sizeHint: inheritedReferenceSize,
+            sizeHint: fallbackSize,
           }
         : options;
     const payload = await postJSON(
@@ -1695,17 +1695,18 @@ async function resolveOpenRouterImageConfigOptions(
   model: string
 ) {
   const imageConfig: Record<string, unknown> = {};
+  const explicitDimensions = intent.explicitSize ? parseSizeDimensions(intent.explicitSize) : null;
 
   if (isOpenRouterGeminiFlashImageModel(model)) {
-    const explicitDimensions = intent.explicitSize ? parseSizeDimensions(intent.explicitSize) : null;
     if (explicitDimensions) {
       imageConfig.aspect_ratio = mapDimensionsToOpenRouterAspectRatio(
         explicitDimensions.width,
         explicitDimensions.height
       );
-      // The UI size presets describe aspect ratio. Keep Gemini on OpenRouter's
-      // default 1K output unless the API flow grows a separate quality control.
-      imageConfig.image_size = '1K';
+      imageConfig.image_size = mapDimensionsToOpenRouterImageSize(
+        explicitDimensions.width,
+        explicitDimensions.height
+      );
     } else {
       imageConfig.aspect_ratio = '1:1';
       imageConfig.image_size = '1K';
@@ -1713,10 +1714,16 @@ async function resolveOpenRouterImageConfigOptions(
     return imageConfig;
   }
 
-  const explicit = resolveOpenAIGptImageSizeFromHint(intent.explicitSize);
-  if (explicit) {
-    imageConfig.size = explicit;
-    return Object.keys(imageConfig).length ? imageConfig : undefined;
+  if (explicitDimensions) {
+    imageConfig.aspect_ratio = mapDimensionsToOpenRouterAspectRatio(
+      explicitDimensions.width,
+      explicitDimensions.height
+    );
+    imageConfig.image_size = mapDimensionsToOpenRouterImageSize(
+      explicitDimensions.width,
+      explicitDimensions.height
+    );
+    return imageConfig;
   }
 
   if (!referenceImages.length) {
