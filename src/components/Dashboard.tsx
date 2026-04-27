@@ -49,7 +49,7 @@ const NAV_MENU_ITEMS: Array<{ route: AppRoute; label: string }> = [
 
 const PROJECTS_PER_PAGE = 11;
 const HOME_IMAGE_SIZE_OPTIONS = [
-  { label: '1:1', value: '2000x2000', pixels: '2000x2000' },
+  { label: '1:1', value: '1200x1200', pixels: '1200x1200' },
   { label: '3:4', value: '1440x1920', pixels: '1440x1920' },
   { label: '4:3', value: '1920x1440', pixels: '1920x1440' },
   { label: '9:16', value: '1200x2133', pixels: '1200x2133' },

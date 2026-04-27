@@ -169,7 +169,7 @@ export const GROUP_OUTPUT_MIN_COUNT = 2;
 export const GROUP_OUTPUT_MAX_COUNT = 15;
 
 const SIZE_RATIO_MAP: Record<string, string> = {
-  '1:1': '2000x2000',
+  '1:1': '1200x1200',
   '4:3': '1920x1440',
   '3:4': '1440x1920',
   '4:5': '1920x2400',
