@@ -3,6 +3,7 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  Brush,
   Copy,
   Crop,
   Download,
@@ -40,6 +41,7 @@ import {
   DEFAULT_TEXT_FONT_WEIGHT,
   DRAW_STROKE_COLOR,
   DRAW_STROKE_WIDTH,
+  LocalEditState,
   ResizeHandle,
   ToolMode,
   buildDrawingFrame,
@@ -63,6 +65,7 @@ interface CanvasStageProps {
   actionPopover: ActionPopoverState | null;
   setActionPopover: Dispatch<SetStateAction<ActionPopoverState | null>>;
   cropState: CropState | null;
+  localEditState: LocalEditState | null;
   editingTextItemId: string | null;
   editingTextValue: string;
   canvasRootRef: RefObject<HTMLDivElement | null>;
@@ -112,6 +115,7 @@ interface CanvasStageProps {
   onSelectCropAspect: (aspect: CropAspect) => void;
   onRegenerateSubmit: () => Promise<void>;
   onMissingRegenerateConfig: () => void;
+  onStartLocalEdit: () => void;
   onAddSelectedImageToChat: () => void;
 }
 
@@ -132,6 +136,12 @@ const RESIZE_HANDLES: Array<{ handle: ResizeHandle; style: React.CSSProperties }
 const CORNER_RESIZE_HANDLES = RESIZE_HANDLES.filter(({ handle }) => handle.length === 2);
 
 const CROP_ASPECT_OPTIONS: CropAspect[] = ['freeform', '1:1', '4:3', '16:9'];
+const CROP_ASPECT_LABELS: Record<CropAspect, string> = {
+  freeform: '自由',
+  '1:1': '1:1',
+  '4:3': '4:3',
+  '16:9': '16:9',
+};
 
 function FloatingToolbar({ children }: { children: React.ReactNode }) {
   return (
@@ -305,6 +315,7 @@ export default function CanvasStage({
   actionPopover,
   setActionPopover,
   cropState,
+  localEditState,
   editingTextItemId,
   editingTextValue,
   canvasRootRef,
@@ -343,6 +354,7 @@ export default function CanvasStage({
   onSelectCropAspect,
   onRegenerateSubmit,
   onMissingRegenerateConfig,
+  onStartLocalEdit,
   onAddSelectedImageToChat,
 }: CanvasStageProps) {
   const selectedImageItem = selectedItem?.type === 'image' ? selectedItem : null;
@@ -705,7 +717,7 @@ export default function CanvasStage({
           </div>
         </div>
 
-        {!cropState ? (
+        {!cropState && !localEditState ? (
           <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
             <div className="inline-flex items-center rounded-full border border-white/[0.08] bg-[#171b22]/95 px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,0.32)] backdrop-blur-xl">
               <button
@@ -761,7 +773,7 @@ export default function CanvasStage({
                       : 'text-slate-200 hover:bg-white/[0.07]'
                   }`}
                 >
-                  {aspect}
+                  {CROP_ASPECT_LABELS[aspect]}
                 </button>
               ))}
               <Divider />
@@ -805,7 +817,7 @@ export default function CanvasStage({
           </div>
         ) : null}
 
-        {!cropState && selectedImageItem && selectedItemToolbarPosition ? (
+        {!cropState && !localEditState && selectedImageItem && selectedItemToolbarPosition ? (
           <div
             className="absolute z-30"
             style={{
@@ -815,41 +827,39 @@ export default function CanvasStage({
             }}
           >
             <FloatingToolbar>
-              <ToolbarAction
-                label="重绘"
-                icon={RefreshCcw}
-                disabled={!isModelConfigured}
-                iconOnly
-                onClick={() => {
-                  if (!isModelConfigured) {
-                    onMissingRegenerateConfig();
-                    return;
-                  }
-                  onOpenRegeneratePopover();
-                }}
-              />
-              <ToolbarAction label="替换" icon={ImageUp} iconOnly onClick={onOpenReplaceImage} />
               <ToolbarAction label="裁剪" icon={Crop} iconOnly onClick={onStartCrop} />
               <Divider />
               <ToolbarAction label="复制" icon={Copy} iconOnly onClick={onCopySelectedItem} />
-              <ToolbarAction
-                label="下载"
-                icon={Download}
-                iconOnly
-                onClick={() => void onDownloadSelectedImage()}
-              />
               <ToolbarAction
                 label="删除"
                 icon={Trash2}
                 iconOnly
                 onClick={onDeleteSelectedItem}
               />
+              <ToolbarAction
+                label="局部重绘"
+                icon={Brush}
+                disabled={!isModelConfigured}
+                onClick={() => {
+                  if (!isModelConfigured) {
+                    onMissingRegenerateConfig();
+                    return;
+                  }
+                  onStartLocalEdit();
+                }}
+              />
               <ToolbarAction label="添加到对话" icon={MessageSquarePlus} onClick={onAddSelectedImageToChat} />
+              <ToolbarAction
+                label="下载"
+                icon={Download}
+                iconOnly
+                onClick={() => void onDownloadSelectedImage()}
+              />
             </FloatingToolbar>
           </div>
         ) : null}
 
-        {!cropState && selectedTextItem && selectedItemToolbarPosition ? (
+        {!cropState && !localEditState && selectedTextItem && selectedItemToolbarPosition ? (
           <div
             className="absolute z-30"
             style={{
@@ -924,7 +934,7 @@ export default function CanvasStage({
           </div>
         ) : null}
 
-        {!cropState && selectedLineItem && selectedItemToolbarPosition ? (
+        {!cropState && !localEditState && selectedLineItem && selectedItemToolbarPosition ? (
           <div
             className="absolute z-30"
             style={{
@@ -954,7 +964,7 @@ export default function CanvasStage({
           </div>
         ) : null}
 
-        {!cropState && selectedShapeItem && selectedItemToolbarPosition ? (
+        {!cropState && !localEditState && selectedShapeItem && selectedItemToolbarPosition ? (
           <div
             className="absolute z-30"
             style={{
@@ -989,7 +999,7 @@ export default function CanvasStage({
           </div>
         ) : null}
 
-        {!cropState && selectedDrawingItem && selectedItemToolbarPosition ? (
+        {!cropState && !localEditState && selectedDrawingItem && selectedItemToolbarPosition ? (
           <div
             className="absolute z-30"
             style={{

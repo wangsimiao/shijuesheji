@@ -15,6 +15,7 @@ export type ActionPopoverType = 'regenerate';
 export type CropAspect = 'freeform' | '1:1' | '4:3' | '16:9';
 export type SceneTab = AiVisionSceneTab;
 export type ResizeHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+export type LocalEditMode = 'paint' | 'erase';
 
 export type ActionPopoverState = {
   type: ActionPopoverType;
@@ -27,6 +28,28 @@ export type CropState = {
   itemId: string;
   aspect: CropAspect;
   rect: CanvasCrop;
+};
+
+export type LocalEditStroke = {
+  id: string;
+  mode: LocalEditMode;
+  brushSize: number;
+  points: CanvasPoint[];
+};
+
+export type LocalEditState = {
+  itemId: string;
+  prompt: string;
+  brushSize: number;
+  mode: LocalEditMode;
+  strokes: LocalEditStroke[];
+  redoStrokes: LocalEditStroke[];
+  activeStroke: LocalEditStroke | null;
+  isSubmitting: boolean;
+  isPreparing?: boolean;
+  baseImageDataUrl?: string;
+  baseImageWidth?: number;
+  baseImageHeight?: number;
 };
 
 export type WorkspaceSnapshot = {
@@ -915,6 +938,130 @@ export function createInitialCropState(itemId: string): CropState {
     aspect: 'freeform',
     rect: { ...DEFAULT_CROP_RECT },
   };
+}
+
+export function createInitialLocalEditState(itemId: string): LocalEditState {
+  return {
+    itemId,
+    prompt: '',
+    brushSize: 36,
+    mode: 'paint',
+    strokes: [],
+    redoStrokes: [],
+    activeStroke: null,
+    isSubmitting: false,
+    isPreparing: false,
+  };
+}
+
+function drawLocalEditStrokes(
+  context: CanvasRenderingContext2D,
+  strokes: LocalEditStroke[],
+  width: number,
+  height: number,
+  options: {
+    paintStyle: string;
+    eraseStyle?: string;
+    composite?: boolean;
+  }
+) {
+  for (const stroke of strokes) {
+    if (!stroke.points.length) continue;
+    const radius = Math.max(1, stroke.brushSize / 2);
+    context.save();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = Math.max(2, stroke.brushSize);
+
+    if (options.composite) {
+      context.globalCompositeOperation = stroke.mode === 'erase' ? 'destination-out' : 'source-over';
+      context.strokeStyle = options.paintStyle;
+      context.fillStyle = options.paintStyle;
+    } else {
+      context.globalCompositeOperation = 'source-over';
+      context.strokeStyle =
+        stroke.mode === 'erase' ? options.eraseStyle || 'rgba(0,0,0,1)' : options.paintStyle;
+      context.fillStyle =
+        stroke.mode === 'erase' ? options.eraseStyle || 'rgba(0,0,0,1)' : options.paintStyle;
+    }
+
+    const firstPoint = stroke.points[0];
+    context.beginPath();
+    context.moveTo(firstPoint.x * width, firstPoint.y * height);
+
+    if (stroke.points.length === 1) {
+      context.arc(firstPoint.x * width, firstPoint.y * height, radius, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      for (const point of stroke.points.slice(1)) {
+        context.lineTo(point.x * width, point.y * height);
+      }
+      context.stroke();
+    }
+
+    context.restore();
+  }
+}
+
+function loadImageForCanvas(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('读取图片失败。'));
+    image.src = source;
+  });
+}
+
+export async function createLocalEditMaskSource(
+  strokes: LocalEditStroke[],
+  width: number,
+  height: number
+) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('无法创建局部编辑遮罩。');
+  }
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  drawLocalEditStrokes(context, strokes, canvas.width, canvas.height, {
+    paintStyle: 'rgba(255,255,255,1)',
+    composite: true,
+  });
+  return canvas.toDataURL('image/png');
+}
+
+export async function createLocalEditMarkedReferenceSource(
+  source: string,
+  strokes: LocalEditStroke[]
+) {
+  const image = await loadImageForCanvas(source);
+  const width = Math.max(1, image.naturalWidth || image.width);
+  const height = Math.max(1, image.naturalHeight || image.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('无法创建局部编辑标记图。');
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+  const overlay = document.createElement('canvas');
+  overlay.width = width;
+  overlay.height = height;
+  const overlayContext = overlay.getContext('2d');
+  if (!overlayContext) {
+    throw new Error('无法创建局部编辑标记图。');
+  }
+  drawLocalEditStrokes(overlayContext, strokes, width, height, {
+    paintStyle: 'rgba(255,36,66,0.62)',
+    composite: true,
+  });
+  context.drawImage(overlay, 0, 0, width, height);
+  return canvas.toDataURL('image/png');
 }
 
 export function moveCropRect(startRect: CanvasCrop, deltaX: number, deltaY: number) {

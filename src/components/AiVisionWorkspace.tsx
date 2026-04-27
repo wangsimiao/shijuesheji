@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { Brush, ChevronLeft, Eraser, Loader2, Redo2, Undo2, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   addBrandTemplateHydrated,
@@ -56,6 +56,7 @@ import {
   DRAW_STROKE_WIDTH,
   FIT_VIEW_PADDING,
   InteractionState,
+  LocalEditState,
   MAX_SCALE,
   MIN_SCALE,
   ResizeHandle,
@@ -69,7 +70,10 @@ import {
   createAvoidOverlapPosition,
   createEmptySession,
   createInitialCropState,
+  createInitialLocalEditState,
   createLineItem,
+  createLocalEditMarkedReferenceSource,
+  createLocalEditMaskSource,
   createWorkspaceSnapshotFromProject,
   cropImageSource,
   downloadAsset,
@@ -160,22 +164,13 @@ function fitCropRectToAspect(rect: CanvasCrop, aspect: CropAspect): CanvasCrop {
 
   const centerX = rect.x + rect.width / 2;
   const centerY = rect.y + rect.height / 2;
-  let width = rect.width;
-  let height = rect.height;
+  const maxWidth = Math.max(0.001, Math.min(centerX * 2, (1 - centerX) * 2, 1));
+  const maxHeight = Math.max(0.001, Math.min(centerY * 2, (1 - centerY) * 2, 1));
+  let nextWidth = maxWidth;
+  let nextHeight = nextWidth / ratio;
 
-  if (width / Math.max(height, 0.0001) > ratio) {
-    width = height * ratio;
-  } else {
-    height = width / ratio;
-  }
-
-  const boundedWidth = Math.min(width, centerX * 2, (1 - centerX) * 2);
-  const boundedHeight = Math.min(height, centerY * 2, (1 - centerY) * 2);
-  let nextWidth = boundedWidth;
-  let nextHeight = boundedWidth / ratio;
-
-  if (nextHeight > boundedHeight) {
-    nextHeight = boundedHeight;
+  if (nextHeight > maxHeight) {
+    nextHeight = maxHeight;
     nextWidth = nextHeight * ratio;
   }
 
@@ -434,6 +429,7 @@ export default function AiVisionWorkspace({
   );
   const [actionPopover, setActionPopover] = useState<ActionPopoverState | null>(null);
   const [cropState, setCropState] = useState<CropState | null>(null);
+  const [localEditState, setLocalEditState] = useState<LocalEditState | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
   const [drawPreviewPoints, setDrawPreviewPoints] = useState<CanvasPoint[] | null>(null);
   const [linePreviewItem, setLinePreviewItem] = useState<CanvasItem | null>(null);
@@ -462,6 +458,7 @@ export default function AiVisionWorkspace({
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const chatUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brandTemplateInputRef = useRef<HTMLInputElement | null>(null);
+  const localEditImageFrameRef = useRef<HTMLDivElement | null>(null);
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
   const brandSpecMenuRef = useRef<HTMLDivElement | null>(null);
   const brandMenuRef = useRef<HTMLDivElement | null>(null);
@@ -469,6 +466,7 @@ export default function AiVisionWorkspace({
   const hasManualBoardNameEditRef = useRef(false);
   const wheelLockTimerRef = useRef<number | null>(null);
   const interactionRef = useRef<InteractionState>(null);
+  const localEditStateRef = useRef<LocalEditState | null>(null);
   const activeTouchGestureRef = useRef(false);
   const gestureStartedInCanvasRef = useRef(false);
   const activeTouchIdsRef = useRef<Set<number>>(new Set());
@@ -684,6 +682,10 @@ export default function AiVisionWorkspace({
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    localEditStateRef.current = localEditState;
+  }, [localEditState]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -1352,6 +1354,12 @@ export default function AiVisionWorkspace({
   }, [cropState, items]);
 
   useEffect(() => {
+    if (!localEditState) return;
+    const exists = items.some((item) => item.id === localEditState.itemId && item.type === 'image');
+    if (!exists) setLocalEditState(null);
+  }, [localEditState, items]);
+
+  useEffect(() => {
     if (editingTextItemId && !items.some((item) => item.id === editingTextItemId)) {
       setEditingTextItemId(null);
       setEditingTextValue('');
@@ -1909,6 +1917,7 @@ export default function AiVisionWorkspace({
     if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     if (editingTextItemId) finishTextEditing();
     if (cropState) return;
+    if (localEditState) return;
 
     const canvas = canvasViewportRef.current;
     if (!canvas) return;
@@ -1982,6 +1991,7 @@ export default function AiVisionWorkspace({
     if (event.button !== 0) return;
     if (event.pointerType === 'touch' && gestureStartedInCanvasRef.current) return;
     if (cropState) return;
+    if (localEditState) return;
     if (editingTextItemId && editingTextItemId !== item.id) finishTextEditing();
 
     if (tool === 'select' && event.shiftKey) {
@@ -2209,6 +2219,9 @@ export default function AiVisionWorkspace({
     if (cropState?.itemId && selectedIdSet.has(cropState.itemId)) {
       setCropState(null);
     }
+    if (localEditState?.itemId && selectedIdSet.has(localEditState.itemId)) {
+      setLocalEditState(null);
+    }
     setActionPopover(null);
   }
 
@@ -2290,6 +2303,7 @@ export default function AiVisionWorkspace({
     if (!selectedImageItem) return;
     if (editingTextItemId) finishTextEditing();
     setActionPopover(null);
+    setLocalEditState(null);
     setCropState(createInitialCropState(selectedImageItem.id));
   }
 
@@ -2329,6 +2343,374 @@ export default function AiVisionWorkspace({
         rect: fitCropRectToAspect(previous.rect, aspect),
       };
     });
+  }
+
+  async function startLocalEdit() {
+    if (!selectedImageItem) return;
+    if (!isSelectedImageModelConfigured) {
+      setStatusNotice(selectedImageModelConfigurationMessage);
+      return;
+    }
+    if (editingTextItemId) finishTextEditing();
+    setActionPopover(null);
+    setCropState(null);
+    setTool('select');
+    setSingleSelection(selectedImageItem.id);
+    const targetItem = selectedImageItem;
+    setLocalEditState({
+      ...createInitialLocalEditState(targetItem.id),
+      isPreparing: true,
+    });
+
+    try {
+      const baseImageDataUrl = await exportImageSource(targetItem);
+      const dimensions = await loadImageDimensions(baseImageDataUrl).catch(() => ({
+        width: Math.max(1, Math.round(targetItem.width)),
+        height: Math.max(1, Math.round(targetItem.height)),
+      }));
+      setLocalEditState((previous) =>
+        previous && previous.itemId === targetItem.id
+          ? {
+              ...previous,
+              baseImageDataUrl,
+              baseImageWidth: dimensions.width,
+              baseImageHeight: dimensions.height,
+              isPreparing: false,
+            }
+          : previous
+      );
+    } catch (error) {
+      setLocalEditState(null);
+      setStatusNotice(getErrorMessage(error));
+    }
+  }
+
+  function cancelLocalEdit() {
+    setLocalEditState(null);
+  }
+
+  function handleLocalEditPromptChange(prompt: string) {
+    setLocalEditState((previous) => (previous ? { ...previous, prompt } : previous));
+  }
+
+  function handleLocalEditBrushSizeChange(brushSize: number) {
+    const safeBrushSize = clamp(Math.round(brushSize), 8, 140);
+    setLocalEditState((previous) =>
+      previous ? { ...previous, brushSize: safeBrushSize } : previous
+    );
+  }
+
+  function handleLocalEditModeChange(mode: 'paint' | 'erase') {
+    setLocalEditState((previous) => (previous ? { ...previous, mode } : previous));
+  }
+
+  function clearLocalEditMarks() {
+    setLocalEditState((previous) =>
+      previous
+        ? { ...previous, strokes: [], redoStrokes: previous.strokes, activeStroke: null }
+        : previous
+    );
+  }
+
+  function undoLocalEditStroke() {
+    setLocalEditState((previous) => {
+      if (!previous || previous.isSubmitting || previous.isPreparing || previous.activeStroke) {
+        return previous;
+      }
+      const stroke = previous.strokes[previous.strokes.length - 1];
+      if (!stroke) return previous;
+      return {
+        ...previous,
+        strokes: previous.strokes.slice(0, -1),
+        redoStrokes: [stroke, ...previous.redoStrokes],
+      };
+    });
+  }
+
+  function redoLocalEditStroke() {
+    setLocalEditState((previous) => {
+      if (!previous || previous.isSubmitting || previous.isPreparing || previous.activeStroke) {
+        return previous;
+      }
+      const stroke = previous.redoStrokes[0];
+      if (!stroke) return previous;
+      return {
+        ...previous,
+        strokes: [...previous.strokes, stroke],
+        redoStrokes: previous.redoStrokes.slice(1),
+      };
+    });
+  }
+
+  function beginLocalEditStroke(point: CanvasPoint) {
+    setLocalEditState((previous) => {
+      if (!previous || previous.isSubmitting) return previous;
+      const stroke = {
+        id: uuidv4(),
+        mode: previous.mode,
+        brushSize: previous.brushSize,
+        points: [point],
+      };
+      return {
+        ...previous,
+        strokes: [...previous.strokes, stroke],
+        redoStrokes: [],
+        activeStroke: stroke,
+      };
+    });
+  }
+
+  function appendLocalEditStrokePoint(point: CanvasPoint) {
+    setLocalEditState((previous) => {
+      if (!previous?.activeStroke || previous.isSubmitting) return previous;
+      const activeStroke = previous.activeStroke;
+      const lastPoint = activeStroke.points[activeStroke.points.length - 1];
+      if (lastPoint && Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 0.003) {
+        return previous;
+      }
+      const nextStroke = {
+        ...activeStroke,
+        points: [...activeStroke.points, point],
+      };
+      return {
+        ...previous,
+        activeStroke: nextStroke,
+        strokes: previous.strokes.map((stroke) =>
+          stroke.id === nextStroke.id ? nextStroke : stroke
+        ),
+      };
+    });
+  }
+
+  function endLocalEditStroke() {
+    setLocalEditState((previous) => (previous ? { ...previous, activeStroke: null } : previous));
+  }
+
+  function getLocalEditPointerPoint(event: React.PointerEvent<HTMLDivElement>): CanvasPoint | null {
+    const frame = localEditImageFrameRef.current;
+    if (!frame) return null;
+    const rect = frame.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return {
+      x: clamp(x, 0, 1),
+      y: clamp(y, 0, 1),
+    };
+  }
+
+  function handleLocalEditCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    const state = localEditStateRef.current;
+    if (!state || state.isSubmitting || state.isPreparing) return;
+    if (event.button !== 0) return;
+    const point = getLocalEditPointerPoint(event);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    beginLocalEditStroke(point);
+  }
+
+  function handleLocalEditCanvasPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const state = localEditStateRef.current;
+    if (!state?.activeStroke || state.isSubmitting || state.isPreparing) return;
+    const point = getLocalEditPointerPoint(event);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    appendLocalEditStrokePoint(point);
+  }
+
+  function handleLocalEditCanvasPointerEnd(event: React.PointerEvent<HTMLDivElement>) {
+    const state = localEditStateRef.current;
+    if (!state?.activeStroke) return;
+    event.preventDefault();
+    event.stopPropagation();
+    endLocalEditStroke();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function buildLocalEditPrompt(prompt: string) {
+    return [
+      `局部重绘需求：${prompt}`,
+      '请以第一张图片作为原图，只修改红色半透明标记或遮罩指示的区域。',
+      '未标记区域必须尽量保持与原图一致，包括构图、文字、Logo、商品主体、人物脸部、光影和版式。',
+      '最终输出必须是一张干净的新图，不要保留红色标记、遮罩、笔刷痕迹或说明文字。',
+    ].join('\n');
+  }
+
+  async function submitLocalEdit() {
+    const state = localEditStateRef.current;
+    if (!state || state.isSubmitting || state.isPreparing) return;
+    if (!currentSession) {
+      setStatusNotice('请先创建或选择一个对话。');
+      return;
+    }
+    if (isChatLoading) {
+      setStatusNotice('当前还有请求在处理中，请稍后再试。');
+      return;
+    }
+    if (!isSelectedImageModelConfigured) {
+      setStatusNotice(selectedImageModelConfigurationMessage);
+      return;
+    }
+
+    const targetItem = itemsRef.current.find(
+      (item) => item.id === state.itemId && item.type === 'image'
+    );
+    if (!targetItem) {
+      setLocalEditState(null);
+      return;
+    }
+
+    const prompt = state.prompt.trim();
+    if (!prompt) {
+      setStatusNotice('请先输入局部重绘提示词。');
+      return;
+    }
+
+    const strokes = state.strokes.filter((stroke) => stroke.points.length > 0);
+    const hasPaintStroke = strokes.some((stroke) => stroke.mode === 'paint');
+    if (!hasPaintStroke) {
+      setStatusNotice('请先涂抹需要修改的区域。');
+      return;
+    }
+
+    const baseImageDataUrl = state.baseImageDataUrl;
+    if (!baseImageDataUrl) {
+      setStatusNotice('图片还在准备中，请稍后再试。');
+      return;
+    }
+
+    const sessionId = currentSession.id;
+    const userMessageId = uuidv4();
+    const loadingMessageId = uuidv4();
+    setIsChatLoading(true);
+    setLocalEditState(null);
+    updateCurrentSessionMessages(sessionId, (previous) => [
+      ...previous,
+      {
+        id: userMessageId,
+        role: 'user',
+        content: `局部重绘：${prompt}`,
+      },
+      {
+        id: loadingMessageId,
+        role: 'assistant',
+        content: '正在局部重绘图片...',
+        isImageLoading: true,
+        imageUrls: [''],
+      },
+    ]);
+
+    try {
+      const baseDimensions =
+        state.baseImageWidth && state.baseImageHeight
+          ? {
+              width: state.baseImageWidth,
+              height: state.baseImageHeight,
+            }
+          : await loadImageDimensions(baseImageDataUrl).catch(() => ({
+              width: Math.max(1, Math.round(targetItem.width)),
+              height: Math.max(1, Math.round(targetItem.height)),
+            }));
+      const maskDataUrl = await createLocalEditMaskSource(
+        strokes,
+        baseDimensions.width,
+        baseDimensions.height
+      );
+      const markedReferenceDataUrl = await createLocalEditMarkedReferenceSource(
+        baseImageDataUrl,
+        strokes
+      );
+
+      updateCurrentSessionMessages(sessionId, (previous) =>
+        previous.map((message) =>
+          message.id === userMessageId
+            ? { ...message, attachedImages: [markedReferenceDataUrl] }
+            : message
+        )
+      );
+
+      const result = await generateImageAI(
+        buildLocalEditPrompt(prompt),
+        effectiveSelectedImageModel,
+        [baseImageDataUrl, markedReferenceDataUrl, maskDataUrl, ...hiddenTemplateReferences],
+        {
+          systemPrompt: activeBrandSystemPrompt,
+          operation: 'local-edit',
+          preserveReferenceText: true,
+        }
+      );
+      const nextImage = result.images[0];
+      if (!nextImage) {
+        throw new Error('局部重绘未返回可用图片。');
+      }
+
+      const imageSize = await loadImageDimensions(nextImage).catch(() => ({
+        width: baseDimensions.width,
+        height: baseDimensions.height,
+      }));
+      const displaySize = fitIntoBounds(imageSize.width, imageSize.height, 620, 620);
+      const preferredPosition = {
+        x: targetItem.x + targetItem.width + 40,
+        y: targetItem.y,
+      };
+      const position = createAvoidOverlapPosition(
+        itemsRef.current,
+        viewRef.current,
+        viewportSizeRef.current,
+        displaySize.width,
+        displaySize.height,
+        preferredPosition
+      );
+      const nextItem: CanvasItem = {
+        id: uuidv4(),
+        type: 'image',
+        x: position.x,
+        y: position.y,
+        width: displaySize.width,
+        height: displaySize.height,
+        content: nextImage,
+        prompt,
+        mimeType: 'image/png',
+        sourceKind: 'generated',
+      };
+
+      setItems((previous) => [...previous, nextItem]);
+      setSingleSelection(nextItem.id);
+      setLocalEditState(null);
+      updateCurrentSessionMessages(sessionId, (previous) => [
+        ...previous.filter((message) => message.id !== loadingMessageId),
+        {
+          id: uuidv4(),
+          role: 'assistant',
+          content: `已局部重绘：${prompt}`,
+          imageUrl: nextImage,
+          imageUrls: [nextImage],
+        },
+      ]);
+      setStatusNotice('局部重绘已生成新图。');
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setLocalEditState((previous) =>
+        previous ? { ...previous, isSubmitting: false, activeStroke: null } : previous
+      );
+      updateCurrentSessionMessages(sessionId, (previous) => [
+        ...previous.filter((item) => item.id !== loadingMessageId),
+        {
+          id: uuidv4(),
+          role: 'assistant',
+          content: `局部重绘失败：${message}`,
+        },
+      ]);
+      setStatusNotice(message);
+    } finally {
+      setIsChatLoading(false);
+    }
   }
 
   async function handleRegenerateSubmit() {
@@ -2623,6 +3005,12 @@ export default function AiVisionWorkspace({
           setCropState(null);
           return;
         }
+        if (localEditState) {
+          if (!localEditState.isSubmitting) {
+            setLocalEditState(null);
+          }
+          return;
+        }
         if (editingTextItemId) {
           finishTextEditing();
           return;
@@ -2635,6 +3023,20 @@ export default function AiVisionWorkspace({
 
       const key = event.key.toLowerCase();
       const withSystemModifier = event.ctrlKey || event.metaKey;
+      if (localEditState && withSystemModifier && key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoLocalEditStroke();
+        } else {
+          undoLocalEditStroke();
+        }
+        return;
+      }
+      if (localEditState && withSystemModifier && key === 'y') {
+        event.preventDefault();
+        redoLocalEditStroke();
+        return;
+      }
       if (withSystemModifier && key === 'c') {
         event.preventDefault();
         void copySelectedItemsToClipboard();
@@ -2654,7 +3056,7 @@ export default function AiVisionWorkspace({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cropState, editingTextItemId, tool]);
+  }, [cropState, editingTextItemId, localEditState, tool]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -2916,6 +3318,7 @@ export default function AiVisionWorkspace({
           actionPopover={actionPopover}
           setActionPopover={setActionPopover}
           cropState={cropState}
+          localEditState={localEditState}
           editingTextItemId={editingTextItemId}
           editingTextValue={editingTextValue}
           canvasRootRef={canvasRootRef}
@@ -2967,6 +3370,7 @@ export default function AiVisionWorkspace({
           onSelectCropAspect={handleSelectCropAspect}
           onRegenerateSubmit={handleRegenerateSubmit}
           onMissingRegenerateConfig={() => setStatusNotice(selectedImageModelConfigurationMessage)}
+          onStartLocalEdit={startLocalEdit}
           onAddSelectedImageToChat={() => {
             void handleAddSelectedImagesToChat();
           }}
@@ -3053,6 +3457,249 @@ export default function AiVisionWorkspace({
           setIsSizeConfigMenuOpen(false);
         }}
       />
+
+      {localEditState ? (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/78 p-4 text-slate-100 backdrop-blur-sm"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <div className="flex h-full max-h-[920px] w-full max-w-[1440px] flex-col overflow-hidden rounded-[22px] border border-white/[0.09] bg-[#0d1118] shadow-[0_32px_110px_rgba(0,0,0,0.58)] lg:flex-row">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex h-14 items-center justify-between border-b border-white/[0.07] px-4">
+                <div className="min-w-0">
+                  <h2 className="truncate text-[15px] font-semibold text-white">局部重绘新图</h2>
+                  <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                    在大图上涂抹要修改的区域，生成结果会作为新图片添加到画布。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!localEditState.isSubmitting) setLocalEditState(null);
+                  }}
+                  disabled={localEditState.isSubmitting}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label="关闭局部编辑"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[#05070b] p-4">
+                {localEditState.isPreparing || !localEditState.baseImageDataUrl ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.05] px-4 py-2 text-[13px] text-slate-200">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    正在准备图片...
+                  </div>
+                ) : (
+                  <div
+                    ref={localEditImageFrameRef}
+                    className={`relative max-h-full max-w-full overflow-hidden bg-black shadow-[0_22px_80px_rgba(0,0,0,0.42)] ${
+                      localEditState.isSubmitting ? 'cursor-wait' : 'cursor-crosshair'
+                    }`}
+                    style={{
+                      aspectRatio: `${localEditState.baseImageWidth || 1} / ${
+                        localEditState.baseImageHeight || 1
+                      }`,
+                      height: '100%',
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                    }}
+                    onPointerDown={handleLocalEditCanvasPointerDown}
+                    onPointerMove={handleLocalEditCanvasPointerMove}
+                    onPointerUp={handleLocalEditCanvasPointerEnd}
+                    onPointerCancel={handleLocalEditCanvasPointerEnd}
+                  >
+                    <img
+                      src={localEditState.baseImageDataUrl}
+                      alt="局部编辑原图"
+                      className="h-full w-full select-none object-contain"
+                      draggable={false}
+                    />
+                    <svg
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      viewBox="0 0 1 1"
+                      preserveAspectRatio="none"
+                    >
+                      {localEditState.strokes.map((stroke) => {
+                        if (!stroke.points.length) return null;
+                        const strokeWidth = Math.max(0.006, stroke.brushSize / 900);
+                        const color =
+                          stroke.mode === 'erase'
+                            ? 'rgba(15,23,42,0.72)'
+                            : 'rgba(255,36,66,0.72)';
+                        if (stroke.points.length === 1) {
+                          const point = stroke.points[0];
+                          return (
+                            <circle
+                              key={stroke.id}
+                              cx={point.x}
+                              cy={point.y}
+                              r={strokeWidth / 2}
+                              fill={color}
+                            />
+                          );
+                        }
+                        const path = stroke.points
+                          .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+                          .join(' ');
+                        return (
+                          <path
+                            key={stroke.id}
+                            d={path}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={strokeWidth}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        );
+                      })}
+                    </svg>
+                    <div className="pointer-events-none absolute inset-0 border-2 border-[#ff385c]/70" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <aside className="flex w-full shrink-0 flex-col gap-4 border-t border-white/[0.07] bg-[#11151c] p-4 lg:w-[360px] lg:border-l lg:border-t-0">
+              <div>
+                <div className="text-[12px] font-medium text-slate-300">编辑工具</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleLocalEditModeChange('paint')}
+                    disabled={localEditState.isSubmitting || localEditState.isPreparing}
+                    className={`inline-flex h-10 items-center gap-1.5 rounded-[12px] px-3 text-[12px] transition disabled:opacity-45 ${
+                      localEditState.mode === 'paint'
+                        ? 'bg-[#344967] text-white'
+                        : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    <Brush className="h-4 w-4" />
+                    涂抹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLocalEditModeChange('erase')}
+                    disabled={localEditState.isSubmitting || localEditState.isPreparing}
+                    className={`inline-flex h-10 items-center gap-1.5 rounded-[12px] px-3 text-[12px] transition disabled:opacity-45 ${
+                      localEditState.mode === 'erase'
+                        ? 'bg-[#344967] text-white'
+                        : 'bg-white/[0.04] text-slate-200 hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    <Eraser className="h-4 w-4" />
+                    擦除
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearLocalEditMarks}
+                    disabled={
+                      localEditState.isSubmitting ||
+                      localEditState.isPreparing ||
+                      localEditState.strokes.length === 0
+                    }
+                    className="inline-flex h-10 items-center rounded-[12px] border border-white/[0.08] px-3 text-[12px] text-slate-200 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    清空标记
+                  </button>
+                  <button
+                    type="button"
+                    onClick={undoLocalEditStroke}
+                    disabled={
+                      localEditState.isSubmitting ||
+                      localEditState.isPreparing ||
+                      localEditState.strokes.length === 0
+                    }
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-white/[0.08] text-slate-200 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-45"
+                    title="撤销"
+                    aria-label="撤销"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={redoLocalEditStroke}
+                    disabled={
+                      localEditState.isSubmitting ||
+                      localEditState.isPreparing ||
+                      localEditState.redoStrokes.length === 0
+                    }
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-white/[0.08] text-slate-200 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-45"
+                    title="重做"
+                    aria-label="重做"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <label className="block text-[12px] font-medium text-slate-300">
+                笔刷大小
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={8}
+                    max={140}
+                    value={localEditState.brushSize}
+                    disabled={localEditState.isSubmitting || localEditState.isPreparing}
+                    onChange={(event) => handleLocalEditBrushSizeChange(Number(event.target.value))}
+                    className="min-w-0 flex-1 accent-[#6f86ab]"
+                  />
+                  <span className="w-9 text-right text-[12px] text-slate-400">
+                    {localEditState.brushSize}
+                  </span>
+                </div>
+              </label>
+
+              <label className="block min-h-0 flex-1 text-[12px] font-medium text-slate-300">
+                重绘提示词
+                <textarea
+                  value={localEditState.prompt}
+                  onChange={(event) => handleLocalEditPromptChange(event.target.value)}
+                  disabled={localEditState.isSubmitting || localEditState.isPreparing}
+                  placeholder="描述这个局部要怎么改，例如：把这里换成蓝色包装"
+                  rows={7}
+                  className="mt-2 min-h-[142px] w-full resize-none rounded-[16px] border border-white/[0.08] bg-white/[0.03] px-3.5 py-3 text-[13px] leading-5 text-white outline-none placeholder:text-slate-500 focus:border-[#6f86ab] disabled:opacity-60"
+                />
+              </label>
+
+              <div className="flex items-center justify-end gap-2 border-t border-white/[0.07] pt-4">
+                <button
+                  type="button"
+                  onClick={cancelLocalEdit}
+                  disabled={localEditState.isSubmitting}
+                  className="rounded-[14px] border border-white/[0.08] px-3.5 py-2 text-[13px] text-slate-200 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitLocalEdit()}
+                  disabled={
+                    localEditState.isSubmitting ||
+                    localEditState.isPreparing ||
+                    !isSelectedImageModelConfigured ||
+                    !localEditState.prompt.trim() ||
+                    !localEditState.strokes.some((stroke) => stroke.mode === 'paint')
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-[14px] bg-[#344967] px-4 py-2 text-[13px] font-medium text-white transition hover:bg-[#3d5578] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {localEditState.isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Brush className="h-4 w-4" />
+                  )}
+                  生成新图
+                </button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      ) : null}
 
       <input
         ref={replaceImageInputRef}
