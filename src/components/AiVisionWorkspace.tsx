@@ -2378,6 +2378,11 @@ export default function AiVisionWorkspace({
 
   async function startLocalEdit() {
     if (!selectedImageItem) return;
+    const hasPendingMessage = currentSession?.messages.some((message) => message.isImageLoading);
+    if (isChatLoading || hasPendingMessage) {
+      setStatusNotice('当前对话还有请求在处理中，请稍后再试。');
+      return;
+    }
     if (!isSelectedImageModelConfigured) {
       setStatusNotice(selectedImageModelConfigurationMessage);
       return;

@@ -126,16 +126,26 @@ function assignElementRef<T>(ref: RefObject<T | null>, value: T | null) {
 }
 
 const RESIZE_HANDLES: Array<{ handle: ResizeHandle; style: React.CSSProperties }> = [
-  { handle: 'nw', style: { left: -6, top: -6 } },
-  { handle: 'n', style: { left: '50%', top: -6, transform: 'translateX(-50%)' } },
-  { handle: 'ne', style: { right: -6, top: -6 } },
-  { handle: 'e', style: { right: -6, top: '50%', transform: 'translateY(-50%)' } },
-  { handle: 'se', style: { right: -6, bottom: -6 } },
-  { handle: 's', style: { left: '50%', bottom: -6, transform: 'translateX(-50%)' } },
-  { handle: 'sw', style: { left: -6, bottom: -6 } },
-  { handle: 'w', style: { left: -6, top: '50%', transform: 'translateY(-50%)' } },
+  { handle: 'nw', style: { left: -14, top: -14 } },
+  { handle: 'n', style: { left: '50%', top: -14, transform: 'translateX(-50%)' } },
+  { handle: 'ne', style: { right: -14, top: -14 } },
+  { handle: 'e', style: { right: -14, top: '50%', transform: 'translateY(-50%)' } },
+  { handle: 'se', style: { right: -14, bottom: -14 } },
+  { handle: 's', style: { left: '50%', bottom: -14, transform: 'translateX(-50%)' } },
+  { handle: 'sw', style: { left: -14, bottom: -14 } },
+  { handle: 'w', style: { left: -14, top: '50%', transform: 'translateY(-50%)' } },
 ];
 const CORNER_RESIZE_HANDLES = RESIZE_HANDLES.filter(({ handle }) => handle.length === 2);
+const HANDLE_CURSOR_CLASS: Record<ResizeHandle, string> = {
+  n: 'cursor-ns-resize',
+  s: 'cursor-ns-resize',
+  e: 'cursor-ew-resize',
+  w: 'cursor-ew-resize',
+  nw: 'cursor-nwse-resize',
+  se: 'cursor-nwse-resize',
+  ne: 'cursor-nesw-resize',
+  sw: 'cursor-nesw-resize',
+};
 
 const CROP_ASPECT_OPTIONS: CropAspect[] = ['freeform', '1:1', '4:3', '16:9'];
 const CROP_ASPECT_LABELS: Record<CropAspect, string> = {
@@ -293,9 +303,17 @@ function CropOverlay({
             key={handle}
             type="button"
             onPointerDown={(event) => onHandlePointerDown(event, handle)}
-            className="absolute h-3.5 w-3.5 rounded-[3px] border border-[#c8d2e8] bg-[#f8fbff]"
+            className={`absolute flex h-7 w-7 items-center justify-center rounded-full bg-transparent ${HANDLE_CURSOR_CLASS[handle]}`}
             style={style}
-          />
+            aria-label="调整裁剪区域"
+            title="调整裁剪区域"
+          >
+            <span
+              className={`block border border-[#c8d2e8] bg-[#f8fbff] shadow-[0_0_0_1px_rgba(15,23,42,0.22)] ${
+                handle.length === 2 ? 'h-3.5 w-3.5 rounded-[4px]' : 'h-3 w-4 rounded-[4px]'
+              }`}
+            />
+          </button>
         ))}
       </div>
     </div>
@@ -606,9 +624,21 @@ export default function CanvasStage({
                               key={handle}
                               type="button"
                               onPointerDown={(event) => onResizeHandlePointerDown(event, item, handle)}
-                              className="absolute h-3 w-3 rounded-[3px] border border-[#c8d2e8] bg-[#f8fbff] shadow-[0_0_0_1px_rgba(123,144,179,0.25)]"
+                              className={`absolute flex h-7 w-7 items-center justify-center rounded-full bg-transparent ${HANDLE_CURSOR_CLASS[handle]}`}
                               style={style}
-                            />
+                              aria-label={
+                                item.type === 'image' || item.type === 'video'
+                                  ? '等比例缩放'
+                                  : '调整大小'
+                              }
+                              title={
+                                item.type === 'image' || item.type === 'video'
+                                  ? '拖动等比例缩放'
+                                  : '拖动调整大小'
+                              }
+                            >
+                              <span className="block h-3.5 w-3.5 rounded-[4px] border border-[#c8d2e8] bg-[#f8fbff] shadow-[0_0_0_1px_rgba(123,144,179,0.25)]" />
+                            </button>
                           ))
                         : null}
                     </>
