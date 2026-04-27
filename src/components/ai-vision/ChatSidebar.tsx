@@ -26,8 +26,11 @@ const HIDDEN_SCROLLBAR =
   '[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
 export const IMAGE_SIZE_OPTIONS = [
-  { label: '1:1', value: '1920x1920', pixels: '1920x1920' },
-  { label: '9:16', value: '1440x2560', pixels: '1440x2560' },
+  { label: '1:1', value: '2000x2000', pixels: '2000x2000' },
+  { label: '3:4', value: '1440x1920', pixels: '1440x1920' },
+  { label: '4:3', value: '1920x1440', pixels: '1920x1440' },
+  { label: '9:16', value: '1200x2133', pixels: '1200x2133' },
+  { label: '16:9', value: '2133x1200', pixels: '2133x1200' },
 ];
 
 interface ChatSidebarProps {
