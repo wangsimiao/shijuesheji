@@ -2765,6 +2765,129 @@ export default function AiVisionWorkspace({
     }
   }
 
+  async function handleEnhanceSelectedImage() {
+    if (!selectedImageItem) return;
+    if (!currentSession) {
+      setStatusNotice('请先创建或选择一个对话。');
+      return;
+    }
+    if (isChatLoading) {
+      setStatusNotice('当前还有请求在处理中，请稍后再试。');
+      return;
+    }
+    if (!isSelectedImageModelConfigured) {
+      setStatusNotice(selectedImageModelConfigurationMessage);
+      return;
+    }
+
+    const targetItem = selectedImageItem;
+    const prompt = [
+      '高清处理：请基于参考图生成一张更清晰、更高质感的新图。',
+      '保留原图的构图、主体、文字、Logo、版式、颜色关系和整体风格。',
+      '只做清晰度、细节、锐度、材质、边缘质量和噪点控制的提升，不要改变内容，不要新增或删除元素。',
+      '最终输出干净自然，不要出现修复痕迹、变形、乱码或额外说明文字。',
+    ].join('\n');
+    const sessionId = currentSession.id;
+    const loadingMessageId = uuidv4();
+
+    setIsChatLoading(true);
+    setActionPopover(null);
+    setCropState(null);
+    setLocalEditState(null);
+
+    try {
+      const referenceImage = await exportImageSource(targetItem);
+      updateCurrentSessionMessages(sessionId, (previous) => [
+        ...previous,
+        {
+          id: uuidv4(),
+          role: 'user',
+          content: '高清处理',
+          attachedImages: [referenceImage],
+        },
+        {
+          id: loadingMessageId,
+          role: 'assistant',
+          content: '正在生成高清图片...',
+          isImageLoading: true,
+          imageUrls: [''],
+        },
+      ]);
+
+      const result = await generateImageAI(
+        prompt,
+        effectiveSelectedImageModel,
+        [referenceImage, ...hiddenTemplateReferences],
+        {
+          systemPrompt: activeBrandSystemPrompt,
+          operation: 'reference',
+          preserveReferenceText: true,
+        }
+      );
+      const nextImage = result.images[0];
+      if (!nextImage) {
+        throw new Error('高清处理未返回可用图片。');
+      }
+
+      const imageSize = await loadImageDimensions(nextImage).catch(() => ({
+        width: Math.max(1, Math.round(targetItem.width)),
+        height: Math.max(1, Math.round(targetItem.height)),
+      }));
+      const displaySize = fitIntoBounds(imageSize.width, imageSize.height, 720, 720);
+      const preferredPosition = {
+        x: targetItem.x + targetItem.width + 40,
+        y: targetItem.y,
+      };
+      const position = createAvoidOverlapPosition(
+        itemsRef.current,
+        viewRef.current,
+        viewportSizeRef.current,
+        displaySize.width,
+        displaySize.height,
+        preferredPosition
+      );
+      const nextItem: CanvasItem = {
+        id: uuidv4(),
+        type: 'image',
+        x: position.x,
+        y: position.y,
+        width: displaySize.width,
+        height: displaySize.height,
+        content: nextImage,
+        prompt: '高清处理',
+        mimeType: 'image/png',
+        sourceKind: 'generated',
+      };
+
+      setItems((previous) => [...previous, nextItem]);
+      setSingleSelection(nextItem.id);
+      updateCurrentSessionMessages(sessionId, (previous) => [
+        ...previous.filter((message) => message.id !== loadingMessageId),
+        {
+          id: uuidv4(),
+          role: 'assistant',
+          content: '已生成高清图片',
+          imageUrl: nextImage,
+          imageUrls: [nextImage],
+        },
+      ]);
+      setStatusNotice('高清图片已生成。');
+    } catch (error) {
+      const message = getErrorMessage(error);
+      updateCurrentSessionMessages(sessionId, (previous) => [
+        ...previous.filter((message) => message.id !== loadingMessageId),
+        {
+          id: uuidv4(),
+          role: 'assistant',
+          content: `高清处理失败：${message}`,
+        },
+      ]);
+      setStatusNotice(message);
+    } finally {
+      setIsChatLoading(false);
+    }
+  }
+
   async function handleSendMessage(payload?: {
     prompt?: string;
     attachedImages?: string[];
@@ -3371,6 +3494,9 @@ export default function AiVisionWorkspace({
           onRegenerateSubmit={handleRegenerateSubmit}
           onMissingRegenerateConfig={() => setStatusNotice(selectedImageModelConfigurationMessage)}
           onStartLocalEdit={startLocalEdit}
+          onEnhanceSelectedImage={() => {
+            void handleEnhanceSelectedImage();
+          }}
           onAddSelectedImageToChat={() => {
             void handleAddSelectedImagesToChat();
           }}

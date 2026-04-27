@@ -20,6 +20,7 @@ import {
   RefreshCcw,
   Scan,
   Slash,
+  Sparkles,
   Trash2,
   Type,
   Video,
@@ -116,6 +117,7 @@ interface CanvasStageProps {
   onRegenerateSubmit: () => Promise<void>;
   onMissingRegenerateConfig: () => void;
   onStartLocalEdit: () => void;
+  onEnhanceSelectedImage: () => void;
   onAddSelectedImageToChat: () => void;
 }
 
@@ -355,6 +357,7 @@ export default function CanvasStage({
   onRegenerateSubmit,
   onMissingRegenerateConfig,
   onStartLocalEdit,
+  onEnhanceSelectedImage,
   onAddSelectedImageToChat,
 }: CanvasStageProps) {
   const selectedImageItem = selectedItem?.type === 'image' ? selectedItem : null;
@@ -846,6 +849,18 @@ export default function CanvasStage({
                     return;
                   }
                   onStartLocalEdit();
+                }}
+              />
+              <ToolbarAction
+                label="高清"
+                icon={Sparkles}
+                disabled={!isModelConfigured}
+                onClick={() => {
+                  if (!isModelConfigured) {
+                    onMissingRegenerateConfig();
+                    return;
+                  }
+                  onEnhanceSelectedImage();
                 }}
               />
               <ToolbarAction label="添加到对话" icon={MessageSquarePlus} onClick={onAddSelectedImageToChat} />
