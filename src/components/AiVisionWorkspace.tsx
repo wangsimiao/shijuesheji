@@ -433,6 +433,7 @@ export default function AiVisionWorkspace({
   const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
   const [drawPreviewPoints, setDrawPreviewPoints] = useState<CanvasPoint[] | null>(null);
   const [linePreviewItem, setLinePreviewItem] = useState<CanvasItem | null>(null);
+  const [localEditImageAreaSize, setLocalEditImageAreaSize] = useState({ width: 0, height: 0 });
   const [selectedImageModel, setSelectedImageModel] = useState(initialSnapshot.selectedImageModel);
   const [isHistoryMenuOpen, setIsHistoryMenuOpen] = useState(false);
   const [isBrandSpecMenuOpen, setIsBrandSpecMenuOpen] = useState(false);
@@ -458,6 +459,7 @@ export default function AiVisionWorkspace({
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const chatUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brandTemplateInputRef = useRef<HTMLInputElement | null>(null);
+  const localEditImageAreaRef = useRef<HTMLDivElement | null>(null);
   const localEditImageFrameRef = useRef<HTMLDivElement | null>(null);
   const historyMenuRef = useRef<HTMLDivElement | null>(null);
   const brandSpecMenuRef = useRef<HTMLDivElement | null>(null);
@@ -685,6 +687,35 @@ export default function AiVisionWorkspace({
 
   useEffect(() => {
     localEditStateRef.current = localEditState;
+  }, [localEditState]);
+
+  useEffect(() => {
+    if (!localEditState) return undefined;
+    const area = localEditImageAreaRef.current;
+    if (!area) return undefined;
+
+    const updateSize = () => {
+      const rect = area.getBoundingClientRect();
+      const style = window.getComputedStyle(area);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft || '0') + Number.parseFloat(style.paddingRight || '0');
+      const verticalPadding =
+        Number.parseFloat(style.paddingTop || '0') + Number.parseFloat(style.paddingBottom || '0');
+      setLocalEditImageAreaSize({
+        width: Math.max(0, rect.width - horizontalPadding),
+        height: Math.max(0, rect.height - verticalPadding),
+      });
+    };
+
+    updateSize();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateSize);
+      return () => window.removeEventListener('resize', updateSize);
+    }
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(area);
+    return () => observer.disconnect();
   }, [localEditState]);
 
   useEffect(() => {
@@ -3394,6 +3425,27 @@ export default function AiVisionWorkspace({
     };
   }, []);
 
+  const localEditImageRatio =
+    localEditState?.baseImageWidth && localEditState.baseImageHeight
+      ? localEditState.baseImageWidth / localEditState.baseImageHeight
+      : 1;
+  const localEditAreaRatio =
+    localEditImageAreaSize.width > 0 && localEditImageAreaSize.height > 0
+      ? localEditImageAreaSize.width / localEditImageAreaSize.height
+      : localEditImageRatio;
+  const localEditFrameSize =
+    localEditState?.baseImageDataUrl && localEditImageAreaSize.width > 0 && localEditImageAreaSize.height > 0
+      ? localEditAreaRatio > localEditImageRatio
+        ? {
+            width: localEditImageAreaSize.height * localEditImageRatio,
+            height: localEditImageAreaSize.height,
+          }
+        : {
+            width: localEditImageAreaSize.width,
+            height: localEditImageAreaSize.width / localEditImageRatio,
+          }
+      : null;
+
   return (
     <div
       className={`ai-vision-workspace flex h-screen w-screen overflow-hidden bg-[#090b11] text-slate-100 ${
@@ -3613,7 +3665,10 @@ export default function AiVisionWorkspace({
                 </button>
               </div>
 
-              <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[#05070b] p-4">
+              <div
+                ref={localEditImageAreaRef}
+                className="relative flex min-h-0 flex-1 items-center justify-center bg-[#05070b] p-4"
+              >
                 {localEditState.isPreparing || !localEditState.baseImageDataUrl ? (
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.05] px-4 py-2 text-[13px] text-slate-200">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -3626,12 +3681,8 @@ export default function AiVisionWorkspace({
                       localEditState.isSubmitting ? 'cursor-wait' : 'cursor-crosshair'
                     }`}
                     style={{
-                      aspectRatio: `${localEditState.baseImageWidth || 1} / ${
-                        localEditState.baseImageHeight || 1
-                      }`,
-                      height: '100%',
-                      maxWidth: '100%',
-                      maxHeight: '100%',
+                      width: localEditFrameSize ? `${localEditFrameSize.width}px` : '100%',
+                      height: localEditFrameSize ? `${localEditFrameSize.height}px` : '100%',
                     }}
                     onPointerDown={handleLocalEditCanvasPointerDown}
                     onPointerMove={handleLocalEditCanvasPointerMove}
@@ -3641,7 +3692,7 @@ export default function AiVisionWorkspace({
                     <img
                       src={localEditState.baseImageDataUrl}
                       alt="局部编辑原图"
-                      className="h-full w-full select-none object-contain"
+                      className="h-full w-full select-none"
                       draggable={false}
                     />
                     <svg
