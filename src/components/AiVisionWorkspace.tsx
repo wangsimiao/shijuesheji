@@ -2505,8 +2505,13 @@ export default function AiVisionWorkspace({
                   width: 1024,
                   height: 1024,
                 }));
-                const fitted = fitIntoBounds(imageSize.width, imageSize.height, 520, 520);
-                return { imageUrl, fitted };
+                return {
+                  imageUrl,
+                  size: {
+                    width: Math.max(1, Math.round(imageSize.width)),
+                    height: Math.max(1, Math.round(imageSize.height)),
+                  },
+                };
               })
             );
 
@@ -2516,12 +2521,21 @@ export default function AiVisionWorkspace({
                 if (slotIndex < 0) return [item];
                 const nextImage = preparedImages[slotIndex];
                 if (!nextImage) return [];
+                const maxWidth = Math.max(...preparedImages.map((image) => image.size.width), 1);
+                const maxHeight = Math.max(...preparedImages.map((image) => image.size.height), 1);
+                const columns = preparedImages.length > 4 ? 4 : preparedImages.length > 2 ? 2 : preparedImages.length;
+                const firstLoadingItem =
+                  previous.find((current) => current.id === loadingItemIds[0]) || item;
+                const row = Math.floor(slotIndex / columns);
+                const column = slotIndex % columns;
                 return [
                   {
                     ...item,
                     type: 'image',
-                    width: nextImage.fitted.width,
-                    height: nextImage.fitted.height,
+                    x: firstLoadingItem.x + column * (maxWidth + 28),
+                    y: firstLoadingItem.y + row * (maxHeight + 28),
+                    width: nextImage.size.width,
+                    height: nextImage.size.height,
                     content: nextImage.imageUrl,
                     prompt,
                     mimeType: 'image/png',

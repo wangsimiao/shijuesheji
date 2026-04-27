@@ -458,6 +458,7 @@ function ChatSidebar({
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const messageCount = currentSession?.messages.length ?? 0;
   const latestMessageKey = currentSession?.messages[messageCount - 1]?.id ?? '';
   const selectedModelLabel = getDisplayModelLabel(
@@ -603,12 +604,19 @@ function ChatSidebar({
                                   }`}
                                 >
                                   {attachedImages.map((imageSrc, index) => (
-                                    <img
+                                    <button
                                       key={`${message.id}-attachment-${index}`}
-                                      src={imageSrc}
-                                      alt={`user attachment ${index + 1}`}
-                                      className="block aspect-square w-full rounded-[14px] object-cover shadow-[0_12px_24px_rgba(0,0,0,0.2)]"
-                                    />
+                                      type="button"
+                                      onClick={() => setPreviewImageUrl(imageSrc)}
+                                      className="block aspect-square w-full overflow-hidden rounded-[14px] shadow-[0_12px_24px_rgba(0,0,0,0.2)] transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#7f96bd]"
+                                      aria-label={`预览用户图片 ${index + 1}`}
+                                    >
+                                      <img
+                                        src={imageSrc}
+                                        alt={`user attachment ${index + 1}`}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </button>
                                   ))}
                                 </div>
                               ) : null}
@@ -694,11 +702,18 @@ function ChatSidebar({
                   <div className={`flex items-center gap-1.5 overflow-x-auto px-0.5 pb-1 ${HIDDEN_SCROLLBAR}`}>
                     {chatInputImages.map((item) => (
                       <div key={item.id} className="group relative h-11 w-11 shrink-0">
-                        <img
-                          src={item.data}
-                          alt={item.name || '参考图'}
-                          className="h-full w-full rounded-[12px] object-cover"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImageUrl(item.data)}
+                          className="h-full w-full rounded-[12px] transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#7f96bd]"
+                          aria-label={`预览${item.name || '参考图'}`}
+                        >
+                          <img
+                            src={item.data}
+                            alt={item.name || '参考图'}
+                            className="h-full w-full rounded-[12px] object-cover"
+                          />
+                        </button>
                         <button
                           type="button"
                           onClick={() => onRemoveChatImage(item.id)}
@@ -942,6 +957,31 @@ function ChatSidebar({
           />
         </div>
       )}
+      {previewImageUrl ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 px-5 py-6 backdrop-blur-sm"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div
+            className="relative flex max-h-full max-w-[min(92vw,1180px)] items-center justify-center"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={previewImageUrl}
+              alt="图片预览"
+              className="max-h-[88vh] max-w-full rounded-[18px] object-contain shadow-[0_30px_90px_rgba(0,0,0,0.55)]"
+            />
+            <button
+              type="button"
+              onClick={() => setPreviewImageUrl(null)}
+              className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/60 text-white transition hover:bg-black/78"
+              aria-label="关闭预览"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }
