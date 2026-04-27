@@ -59,6 +59,8 @@ export type GenerateImageAIOptions = {
   systemPrompt?: string;
   outputCount?: number;
   sizeHint?: string;
+  operation?: 'generate' | 'reference' | 'regenerate' | 'local-edit';
+  preserveReferenceText?: boolean;
 };
 
 export type GenerateImageAIResult = {
@@ -101,6 +103,16 @@ const DEFAULT_SYSTEM_PROMPT = `
 你是“电商AI”设计助手，请始终使用中文回复。
 当用户明确要求“生成图片/出图/改图/图生图”时，优先触发 generateImage 工具。
 当用户是咨询问题时，给出简明、可执行的建议。
+`.trim();
+
+const REFERENCE_TEXT_PRESERVATION_PROMPT = `
+保留规则：如果参考图中包含文字、Logo、标签、品牌名、商品包装文字、UI 文案，除非用户明确要求修改这些内容，否则必须保持原样。不要删除、改写、重排、模糊、替换或生成乱码。
+如果用户明确要求修改、替换或删除某些文字，只处理被明确要求的文字；其他未提到的文字、Logo、标签、品牌名和商品包装文字仍然必须保持原样。
+`.trim();
+
+const LOCAL_EDIT_TEXT_PRESERVATION_PROMPT = `
+局部修改规则：只修改用户标记区域。未标记区域必须尽量保持原图一致，尤其不要改变文字、Logo、标签、商品包装文字、人物脸部、商品主体和版式结构。最终图中不要保留遮罩、红色笔刷或任何标记。
+如果用户明确要求修改、替换或删除某些文字，只处理被明确要求的文字；其他未提到的文字、Logo、标签、品牌名和商品包装文字仍然必须保持原样。
 `.trim();
 
 const IMAGE_INTENT_KEYWORDS = [
@@ -622,6 +634,45 @@ function buildForcedImagePromptV2(prompt: string, outputCount: number = 1) {
     return `${safePrompt}\n\n请直接输出 ${outputCount} 张不同构图的图片结果，不要只返回文字描述。`;
   }
   return `${safePrompt}\n\n请直接生成图片并返回至少 1 张图像结果，不要只返回文字说明。`;
+}
+
+function buildImagePreservationPrompt(
+  operation: GenerateImageAIOptions['operation'],
+  hasReferenceImages: boolean,
+  preserveReferenceText: boolean = true
+) {
+  if (!preserveReferenceText || !hasReferenceImages) return '';
+  if (operation === 'local-edit') return LOCAL_EDIT_TEXT_PRESERVATION_PROMPT;
+  return REFERENCE_TEXT_PRESERVATION_PROMPT;
+}
+
+function appendPromptSection(prompt: string, section: string) {
+  const safePrompt = prompt.trim();
+  const safeSection = section.trim();
+  if (!safeSection) return safePrompt;
+  return `${safePrompt}\n\n${safeSection}`;
+}
+
+function enhanceImageGenerationOptions(
+  prompt: string,
+  referenceImages: string[],
+  options?: GenerateImageAIOptions
+) {
+  const hasReferenceImages = referenceImages.some((item) => typeof item === 'string' && item.trim());
+  const operation = options?.operation || (hasReferenceImages ? 'reference' : 'generate');
+  const preservationPrompt = buildImagePreservationPrompt(
+    operation,
+    hasReferenceImages,
+    options?.preserveReferenceText !== false
+  );
+
+  return {
+    prompt: appendPromptSection(prompt, preservationPrompt),
+    options: {
+      ...options,
+      operation,
+    },
+  };
 }
 
 function parseSizeDimensions(value: string) {
@@ -1948,12 +1999,13 @@ export async function generateImageAI(
   if (!cleanPrompt) {
     throw new Error('提示词不能为空。');
   }
+  const enhanced = enhanceImageGenerationOptions(cleanPrompt, referenceImages, options);
 
   if (isOpenRouterImageModel(model || '')) {
-    return generateOpenRouterImage(cleanPrompt, model, referenceImages, options);
+    return generateOpenRouterImage(enhanced.prompt, model, referenceImages, enhanced.options);
   }
 
-  return generateDoubaoImage(cleanPrompt, model, referenceImages, options);
+  return generateDoubaoImage(enhanced.prompt, model, referenceImages, enhanced.options);
 }
 
 export async function generateVideoAI(

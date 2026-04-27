@@ -2354,6 +2354,7 @@ export default function AiVisionWorkspace({
         [referenceImage, ...hiddenTemplateReferences],
         {
           systemPrompt: activeBrandSystemPrompt,
+          operation: 'regenerate',
         }
       );
       const nextImage = result.images[0];
@@ -2493,6 +2494,7 @@ export default function AiVisionWorkspace({
                 systemPrompt: systemPromptForRequest,
                 outputCount: expectedOutputCount,
                 sizeHint: effectiveSizeHint,
+                operation: referenceImages.length || hiddenTemplateReferences.length ? 'reference' : 'generate',
               }
             );
             const generatedUrls = imageResult.images;
