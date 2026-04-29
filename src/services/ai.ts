@@ -1832,6 +1832,29 @@ async function requestOpenRouterImagePayload(
   return payload;
 }
 
+async function extractConvertedOpenRouterImages(payload: any) {
+  const imageEntries = extractOpenRouterImageUrls(payload);
+  const images: string[] = [];
+
+  for (const imageUrl of imageEntries) {
+    if (typeof imageUrl !== 'string' || !imageUrl.trim()) continue;
+    if (imageUrl.startsWith('data:')) {
+      images.push(imageUrl);
+      continue;
+    }
+    try {
+      images.push(await fetchImageAsDataUrl(imageUrl));
+    } catch {
+      images.push(imageUrl);
+    }
+  }
+
+  return {
+    images,
+    rawCount: imageEntries.length,
+  };
+}
+
 async function generateOpenRouterImage(
   prompt: string,
   model: string,
@@ -1849,83 +1872,90 @@ async function generateOpenRouterImage(
   });
   const refs = await prepareReferenceImagesForProxy(referenceImages);
   const targetOutputCount = Math.max(1, intent.outputCount || 1);
-  const forcedPrompt = buildForcedImagePromptV2(prompt, targetOutputCount);
-  const userContent = refs.length
-    ? [
-        { type: 'text', text: forcedPrompt } as ChatContentPart,
-        ...refs.map(
-          (image) =>
-            ({
-              type: 'image_url',
-              image_url: { url: image },
-            }) satisfies ChatContentPart
-        ),
-      ]
-    : forcedPrompt;
+  const buildMessages = (outputCount: number) => {
+    const forcedPrompt = buildForcedImagePromptV2(prompt, outputCount);
+    const userContent = refs.length
+      ? [
+          { type: 'text', text: forcedPrompt } as ChatContentPart,
+          ...refs.map(
+            (image) =>
+              ({
+                type: 'image_url',
+                image_url: { url: image },
+              }) satisfies ChatContentPart
+          ),
+        ]
+      : forcedPrompt;
 
-  const messages: Array<{ role: 'system' | 'user'; content: string | ChatContentPart[] }> = [];
-  if (options?.systemPrompt?.trim()) {
+    const messages: Array<{ role: 'system' | 'user'; content: string | ChatContentPart[] }> = [];
+    if (options?.systemPrompt?.trim()) {
+      messages.push({
+        role: 'system',
+        content: options.systemPrompt.trim(),
+      });
+    }
     messages.push({
-      role: 'system',
-      content: options.systemPrompt.trim(),
+      role: 'user',
+      content: userContent,
     });
-  }
-  messages.push({
-    role: 'user',
-    content: userContent,
-  });
+    return messages;
+  };
 
   try {
     const resolvedModel = resolveImageModelAlias(model || config.imageModel) || OPENROUTER_GPT_IMAGE_MODEL;
     const imageConfig = await resolveOpenRouterImageConfigOptions(intent, refs, resolvedModel);
-    const requestBody: Record<string, unknown> = {
-      model: resolvedModel,
-      messages,
-      modalities: ['image', 'text'],
-      stream: false,
+    const buildRequestBody = (outputCount: number): Record<string, unknown> => {
+      const requestBody: Record<string, unknown> = {
+        model: resolvedModel,
+        messages: buildMessages(outputCount),
+        modalities: ['image', 'text'],
+        stream: false,
+      };
+      if (imageConfig && Object.keys(imageConfig).length > 0) {
+        requestBody.image_config = imageConfig;
+      }
+      return requestBody;
     };
-    if (imageConfig && Object.keys(imageConfig).length > 0) {
-      requestBody.image_config = imageConfig;
-    }
 
-    const maxAttempts =
-      targetOutputCount > 1
-        ? Math.min(targetOutputCount + 2, GROUP_OUTPUT_MAX_COUNT + 2)
-        : 1;
     const images: string[] = [];
     let rawCount = 0;
     let lastPayload: any = null;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const payload = await requestOpenRouterImagePayload(requestBody, config);
-      lastPayload = payload;
-      const imageEntries = extractOpenRouterImageUrls(payload);
-      rawCount += imageEntries.length;
+    if (targetOutputCount > 1) {
+      const requestBody = buildRequestBody(1);
+      const results = await Promise.allSettled(
+        Array.from({ length: targetOutputCount }, async () => {
+          const payload = await requestOpenRouterImagePayload(requestBody, config);
+          const converted = await extractConvertedOpenRouterImages(payload);
+          return {
+            payload,
+            ...converted,
+          };
+        })
+      );
 
-      const convertedBatch: string[] = [];
-      for (const imageUrl of imageEntries) {
-        if (typeof imageUrl !== 'string' || !imageUrl.trim()) continue;
-        if (imageUrl.startsWith('data:')) {
-          convertedBatch.push(imageUrl);
+      let lastError: unknown = null;
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          lastError = result.reason;
           continue;
         }
-        try {
-          convertedBatch.push(await fetchImageAsDataUrl(imageUrl));
-        } catch {
-          convertedBatch.push(imageUrl);
-        }
+        lastPayload = result.value.payload;
+        rawCount += result.value.rawCount;
+        pushUniqueImages(result.value.images, images);
+        if (images.length >= targetOutputCount) break;
       }
-      pushUniqueImages(convertedBatch, images);
 
-      if (images.length >= targetOutputCount) {
-        break;
+      if (!images.length && !lastPayload && lastError) {
+        throw lastError;
       }
-      if (targetOutputCount <= 1) {
-        break;
-      }
-      if (!imageEntries.length && attempt >= 1) {
-        break;
-      }
+    } else {
+      const requestBody = buildRequestBody(1);
+      const payload = await requestOpenRouterImagePayload(requestBody, config);
+      lastPayload = payload;
+      const converted = await extractConvertedOpenRouterImages(payload);
+      rawCount += converted.rawCount;
+      pushUniqueImages(converted.images, images);
     }
 
     if (!images.length) {
